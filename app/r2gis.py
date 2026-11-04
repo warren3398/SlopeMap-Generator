@@ -112,6 +112,14 @@ def intersecting(kind,geom):
 def status():
     return {"storage":"Cloudflare R2","bucket":BUCKET,"configured":configured(),"datasets":list(KEYS)}
 
+@router.get("/gis/inspect-slope")
+def inspect_slope():
+    path=local_file("slope")
+    info=pyogrio.read_info(path)
+    fields=[str(x) for x in info["fields"]]
+    sample=pyogrio.read_dataframe(path,read_geometry=False,max_features=12)
+    return {"count":int(info["features"]),"columns":fields,"samples":[{str(k):str(v)[:90] for k,v in row.items()} for row in sample.to_dict("records")]}
+
 @router.get("/gis/inspect-boundaries")
 def inspect_boundaries():
     result={}
