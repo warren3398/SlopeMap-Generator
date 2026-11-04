@@ -100,3 +100,6 @@ async def generate(boundary_file: UploadFile | None = File(None), boundary_code:
     return {"type": "FeatureCollection", "features": features,
             "statistics": [{"slope_class": k, "area_ha": round(v,3)} for k,v in sorted(stats.items())],
             "total_classified_ha": round(sum(stats.values()),3)}
+
+from .uploader import router as gis_uploader_router
+app.include_router(gis_uploader_router)
