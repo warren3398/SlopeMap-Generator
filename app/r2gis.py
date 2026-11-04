@@ -126,31 +126,47 @@ def inspect_boundaries():
             result[level]={"error":type(exc).__name__}
     return result
 
+def region_frame(code):
+    provinces=pyogrio.read_dataframe(local_file("province"),columns=["ADM1_PCODE","ADM1_EN"])
+    selected=provinces[provinces["ADM1_PCODE"].astype(str)==code]
+    if selected.empty:raise HTTPException(404,"Region not found")
+    return unary_union(selected.to_crs(4326).geometry.values)
+
+def selected_geometry(code):
+    level,_,identifier=code.partition(":")
+    if level=="region":return region_frame(identifier)
+    if level not in ("province","municipality","barangay") or not identifier.isdigit():
+        raise HTTPException(400,"Invalid administrative boundary")
+    df=pyogrio.read_dataframe(local_file(level),fids=[int(identifier)])
+    if df.empty:raise HTTPException(404,"Administrative boundary not found")
+    return valid_poly(df.to_crs(4326).geometry.iloc[0])
+
 @router.get("/boundaries")
 def boundaries(level:str,parent_code:str|None=None):
-    if level not in ("region","province","municipality","barangay"):raise HTTPException(400,"Invalid level")
-    # Parent selection uses level:row-id; no assumption about source PSGC fields.
+    if level not in ("region","province","municipality","barangay"):
+        raise HTTPException(400,"Invalid level")
+    if level=="region":
+        df=pyogrio.read_dataframe(local_file("province"),columns=["ADM1_EN","ADM1_PCODE"])
+        if not {"ADM1_EN","ADM1_PCODE"}.issubset(df.columns):
+            raise HTTPException(422,"Province dataset lacks ADM1_EN / ADM1_PCODE")
+        unique=df[["ADM1_EN","ADM1_PCODE"]].dropna().drop_duplicates()
+        return sorted([{"code":"region:"+str(r.ADM1_PCODE),"name":str(r.ADM1_EN)} for r in unique.itertuples(index=False)],key=lambda x:x["name"])
+    source=local_file(level)
+    info=pyogrio.read_info(source)
     if parent_code:
-        parent_level,_,row=parent_code.partition(":")
-        if parent_level not in KEYS or parent_level=="slope" or not row.isdigit():raise HTTPException(400,"Invalid parent")
-        try:parent=pyogrio.read_dataframe(local_file(parent_level),fids=[int(row)])
-        except Exception:raise HTTPException(422,"Cannot read selected parent")
-        if parent.empty:raise HTTPException(404,"Parent not found")
-        parent=parent.to_crs(4326)
-        # Use GeoPackage feature IDs for stable boundary selection.
-        # For listing, use GeoPackage feature IDs via pyogrio fid_as_index.
-        df=pyogrio.read_dataframe(local_file(level),bbox=tuple(parent.to_crs(pyogrio.read_info(local_file(level))["crs"]).total_bounds),fid_as_index=True)
-        df=df.to_crs(4326)
-        df=df[df.geometry.intersects(parent.geometry.iloc[0])]
+        geom=selected_geometry(parent_code)
+        bbox=tuple(gpd.GeoSeries([geom],crs=4326).to_crs(info["crs"]).total_bounds)
+        df=pyogrio.read_dataframe(source,bbox=bbox,fid_as_index=True)
+        if not df.empty:
+            df=df.to_crs(4326)
+            # Require representative point inside the parent, avoiding neighbors along shared borders.
+            df=df[df.geometry.representative_point().within(geom)]
     else:
-        df=pyogrio.read_dataframe(local_file(level),fid_as_index=True)
-    col=name_column([c for c in df.columns if c!=df.geometry.name],level)
-    out=[]
-    for fid,r in df.iterrows():
-        value=r[col]
-        if value is None:continue
-        out.append({"code":level+":"+str(fid),"name":str(value)})
-    return sorted(out,key=lambda r:r["name"])
+        df=pyogrio.read_dataframe(source,fid_as_index=True)
+    col={"province":"ADM2_EN","municipality":"NAME_2","barangay":"NAME_3"}[level]
+    if col not in df.columns:
+        raise HTTPException(422,"Missing "+col+" in "+level+" dataset")
+    return sorted([{"code":level+":"+str(fid),"name":str(r[col])} for fid,r in df.iterrows() if r[col] is not None],key=lambda x:x["name"])
 
 @router.post("/generate")
 async def generate(boundary_file:UploadFile|None=File(None),boundary_code:str|None=Form(None)):
@@ -159,11 +175,7 @@ async def generate(boundary_file:UploadFile|None=File(None),boundary_code:str|No
         parcels=read_parcel(await boundary_file.read(),boundary_file.filename or "")
         boundary=unary_union([valid_poly(g) for g in parcels.geometry])
     else:
-        level,_,fid=boundary_code.partition(":")
-        if level not in ("region","province","municipality","barangay") or not fid.isdigit():raise HTTPException(400,"Invalid boundary")
-        df=pyogrio.read_dataframe(local_file(level),fids=[int(fid)])
-        if df.empty:raise HTTPException(404,"Boundary not found")
-        boundary=valid_poly(df.to_crs(4326).geometry.iloc[0])
+        boundary=selected_geometry(boundary_code)
     if boundary.is_empty:raise HTTPException(400,"Empty boundary")
     slope=intersecting("slope",boundary)
     if slope.empty:return {"type":"FeatureCollection","features":[],"statistics":[],"total_classified_ha":0}
