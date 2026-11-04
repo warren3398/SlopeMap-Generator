@@ -108,11 +108,11 @@ def boundaries(level:str,parent_code:str|None=None):
     if parent_code:
         parent_level,_,row=parent_code.partition(":")
         if parent_level not in KEYS or parent_level=="slope" or not row.isdigit():raise HTTPException(400,"Invalid parent")
-        try:parent=gpd.read_file(local_file(parent_level),rows=slice(int(row),int(row)+1))
+        try:parent=pyogrio.read_dataframe(local_file(parent_level),fids=[int(row)])
         except Exception:raise HTTPException(422,"Cannot read selected parent")
         if parent.empty:raise HTTPException(404,"Parent not found")
         parent=parent.to_crs(4326)
-        # Read row IDs from a separate FID column where available; do not invent positional IDs.
+        # Use GeoPackage feature IDs for stable boundary selection.
         # For listing, use GeoPackage feature IDs via pyogrio fid_as_index.
         df=pyogrio.read_dataframe(local_file(level),bbox=tuple(parent.to_crs(pyogrio.read_info(local_file(level))["crs"]).total_bounds),fid_as_index=True)
         df=df.to_crs(4326)
