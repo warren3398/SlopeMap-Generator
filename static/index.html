@@ -6,9 +6,28 @@ const getPlace=()=>{if($('mode').value==='upload')return ['Uploaded Parcel','Par
 const saveBlob=(blob,name)=>{const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),5000)};
 const layoutCanvas=async()=>{
  if(!result)throw Error('Generate a slope map first');
- if(!window.html2canvas)throw Error('Map export library unavailable');
+ 
  $('status').textContent='Preparing printable slope map…';
- const snapshot=await html2canvas($('map'),{useCORS:true,allowTaint:false,backgroundColor:'#e4e8e3',scale:1,logging:false,ignoreElements:el=>el.classList?.contains('leaflet-control-zoom')});
+ const snapshot=document.createElement('canvas');
+ const mapSize=map.getSize();snapshot.width=Math.max(1,Math.round(mapSize.x));snapshot.height=Math.max(1,Math.round(mapSize.y));
+ const sc=snapshot.getContext('2d');sc.fillStyle='#e4e8e3';sc.fillRect(0,0,snapshot.width,snapshot.height);
+ // Paint satellite tiles individually, so external tile restrictions cannot break exports.
+ const mapRect=$('map').getBoundingClientRect();
+ for(const img of $('map').querySelectorAll('.leaflet-tile-loaded')){
+   const rect=img.getBoundingClientRect();
+   try{sc.drawImage(img,rect.left-mapRect.left,rect.top-mapRect.top,rect.width,rect.height)}catch(_){}
+ }
+ // Draw slope polygons directly from generated GeoJSON, independent of Leaflet's SVG renderer.
+ const palette={A:'#418a41',B:'#89b340',C:'#dde340',D:'#ffe240',E:'#ffa340',F:'#ff0000'};
+ for(const feature of result.features||[]){
+   const k=classKey(feature.properties?.slope_class);
+   if(!palette[k])continue;
+   const geom=feature.geometry||{},polys=geom.type==='Polygon'?[geom.coordinates]:geom.type==='MultiPolygon'?geom.coordinates:[];
+   sc.beginPath();
+   for(const poly of polys)for(const ring of poly){ring.forEach((pt,i)=>{const p=map.latLngToContainerPoint([pt[1],pt[0]]);if(i===0)sc.moveTo(p.x,p.y);else sc.lineTo(p.x,p.y)});sc.closePath()}
+   sc.fillStyle=palette[k];sc.globalAlpha=.82;sc.fill('evenodd');sc.globalAlpha=1;
+ }
+
  const c=document.createElement('canvas');c.width=1800;c.height=1120;const x=c.getContext('2d');
  x.fillStyle='white';x.fillRect(0,0,c.width,c.height);
  x.strokeStyle='#263c31';x.lineWidth=2;x.strokeRect(12,12,1776,1096);
@@ -27,7 +46,7 @@ const layoutCanvas=async()=>{
  x.textAlign='left';x.fillStyle='#111';x.font='bold 19px Arial';x.fillText('Slope Class (Percent)',sx+17,y+31);
  labels.forEach((r,i)=>{const yy=y+53+i*34;x.fillStyle=r[3];x.fillRect(sx+18,yy-17,30,23);x.fillStyle='#111';x.font='18px Arial';x.fillText(r[0],sx+64,yy+2);x.fillText(r[1],sx+108,yy+2);x.font='16px Arial';x.fillText(r[2],sx+226,yy+2)});
  y+=296;bar('Slope Class Summary',39);
- const sums={};for(const t of result.statistics||[]){const k=classKey(t.slope_class);if('ABCDEF'.includes(k)&&k?.length===1)sums[k]=(sums[k]||0)+Number(t.area_ha)};
+ const sums={};for(const t of result.statistics||[]){const k=classKey(t.slope_class);if(k&&'ABCDEF'.includes(k)&&k.length===1)sums[k]=(sums[k]||0)+Number(t.area_ha)};
  const total=Object.values(sums).reduce((a,b)=>a+b,0);const ty=y;x.fillStyle='white';x.fillRect(sx,y,sw,269);box(269);
  x.font='bold 17px Arial';x.fillStyle='#111';x.fillText('Class',sx+15,y+27);x.fillText('Area (ha)',sx+195,y+27);x.fillText('Area (%)',sx+345,y+27);
  y+=39;labels.forEach(r=>{x.strokeStyle='#d1d1d1';x.lineWidth=1;x.beginPath();x.moveTo(sx,y+10);x.lineTo(sx+sw,y+10);x.stroke();x.fillStyle='#111';x.font='18px Arial';x.fillText(r[0],sx+24,y+3);x.fillText((sums[r[0]]||0).toLocaleString('en-US',{maximumFractionDigits:2}),sx+195,y+3);x.fillText(total?((sums[r[0]]||0)*100/total).toFixed(2):'0.00',sx+350,y+3);y+=30});
@@ -36,7 +55,7 @@ const layoutCanvas=async()=>{
  ['Basemap: Esri World Imagery','Coordinates: WGS 84 (EPSG:4326)','Slope: Classified polygons (A–F)','Generated: '+new Date().toLocaleDateString('en-PH'),'No data is excluded from class totals'].forEach((line,i)=>x.fillText(line,sx+14,y+30+i*27));
  return c;
 };
-$('download-jpeg').onclick=async()=>{try{const c=await layoutCanvas();c.toBlob(b=>{if(!b)throw Error('JPEG unavailable');saveBlob(b,'slope-map-layout.jpg');$('status').textContent='JPEG layout ready'},'image/jpeg',.93)}catch(e){$('status').textContent='JPEG error: '+e.message}};
+$('download-jpeg').onclick=async()=>{try{const c=await layoutCanvas();c.toBlob(b=>{if(!b){$('status').textContent='JPEG encoding failed';return}saveBlob(b,'slope-map-layout.jpg');$('status').textContent='JPEG layout ready'},'image/jpeg',.93)}catch(e){$('status').textContent='JPEG error: '+e.message}};
 $('download-pdf').onclick=async()=>{try{const c=await layoutCanvas();if(!window.jspdf)throw Error('PDF library unavailable');const pdf=new jspdf.jsPDF({orientation:'landscape',unit:'mm',format:'a3'});pdf.addImage(c.toDataURL('image/jpeg',.94),'JPEG',0,0,420,297);pdf.save('slope-map-layout.pdf');$('status').textContent='PDF layout ready'}catch(e){$('status').textContent='PDF error: '+e.message}};
 $('download-shp').onclick=async()=>{if(!result)return alert('Generate a slope map first');$('status').textContent='Preparing Shapefile ZIP…';try{const r=await fetch('/download/shapefile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(result)});if(!r.ok){const d=await r.json().catch(()=>({}));throw Error(d.detail||'Shapefile export failed')}saveBlob(await r.blob(),'slope-map-shapefile.zip');$('status').textContent='Shapefile ZIP ready'}catch(e){$('status').textContent='Shapefile error: '+e.message}};
 </script></body></html>
