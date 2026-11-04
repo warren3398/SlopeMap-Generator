@@ -15,7 +15,7 @@ const layoutCanvas=async()=>{
  const host=document.createElement('div');
  host.style.cssText='position:fixed;left:-20000px;top:0;width:'+printW+'px;height:'+printH+'px;pointer-events:none;';
  document.body.append(host);
- const exportMap=L.map(host,{zoomControl:false,attributionControl:false,fadeAnimation:false,zoomAnimation:false});
+ const exportMap=L.map(host,{zoomControl:false,attributionControl:false,fadeAnimation:false,zoomAnimation:false,zoomSnap:0.1});
  const imagery=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,crossOrigin:true});
  imagery.addTo(exportMap);
  const snapshot=document.createElement('canvas');snapshot.width=printW;snapshot.height=printH;
@@ -23,24 +23,28 @@ const layoutCanvas=async()=>{
    exportMap.invalidateSize();
    const bounds=layer&&layer.getLayers().length?layer.getBounds():map.getBounds();
    exportMap.fitBounds(bounds,{padding:[18,18],animate:false,maxZoom:16});
-   let xs=[],ys=[];
+   // Compute the actual colored-feature extent, then fit within the print viewport.
+   // Leaflet fitBounds handles aspect ratio and prevents clipping at all map scales.
+   const fitted=L.latLngBounds([]);
    for(const feature of result.features||[]){
-     const k=classKey(feature.properties?.slope_class);
-     if(!k||!'ABCDEF'.includes(k))continue;
-     const g=feature.geometry||{};
-     const polys=g.type==='Polygon'?[g.coordinates]:g.type==='MultiPolygon'?g.coordinates:[];
-     for(const poly of polys)for(const ring of poly)for(const coord of ring){
-       const p=exportMap.project([coord[1],coord[0]],exportMap.getZoom());
-       if(Number.isFinite(p.x)&&Number.isFinite(p.y)){xs.push(p.x);ys.push(p.y)}
+     const cls=classKey(feature.properties?.slope_class);
+     if(!cls||!'ABCDEF'.includes(cls))continue;
+     const geom=feature.geometry||{};
+     const polygons=geom.type==='Polygon'?[geom.coordinates]:geom.type==='MultiPolygon'?geom.coordinates:[];
+     for(const poly of polygons)for(const ring of poly)for(const coord of ring){
+       if(Number.isFinite(coord[0])&&Number.isFinite(coord[1]))fitted.extend([coord[1],coord[0]]);
      }
    }
-   if(xs.length){
-     const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
-     const scale=Math.min(printW*.88/Math.max(1,x1-x0),printH*.88/Math.max(1,y1-y0));
-     const center=exportMap.unproject([(x0+x1)/2,(y0+y1)/2],exportMap.getZoom());
-     exportMap.setView(center,Math.min(17,Math.max(1,exportMap.getZoom()+Math.log2(scale))),{animate:false});
-   }
-   await new Promise(resolve=>setTimeout(resolve,1200));
+   if(fitted.isValid())exportMap.fitBounds(fitted,{padding:[65,65],animate:false,maxZoom:16});
+   // Wait for all satellite tiles needed by this viewport, not a fixed 1.2 seconds.
+   await new Promise(resolve=>{
+     let finished=false;
+     const done=()=>{if(finished)return;finished=true;imagery.off('load',done);resolve()};
+     if(!imagery.isLoading())return done();
+     imagery.on('load',done);
+     setTimeout(done,7000);
+   });
+   await Promise.all(Array.from(host.querySelectorAll('.leaflet-tile-loaded')).map(img=>img.decode?.().catch(()=>{})||Promise.resolve()));
    const sc=snapshot.getContext('2d');sc.fillStyle='#e4e8e3';sc.fillRect(0,0,printW,printH);
    const mapRect=host.getBoundingClientRect();
    for(const img of host.querySelectorAll('.leaflet-tile-loaded')){
