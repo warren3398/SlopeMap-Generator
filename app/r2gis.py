@@ -162,7 +162,10 @@ def boundaries(level:str,parent_code:str|None=None):
             # Require representative point inside the parent, avoiding neighbors along shared borders.
             df=df[df.geometry.representative_point().within(geom)]
     else:
-        df=pyogrio.read_dataframe(source,fid_as_index=True)
+        # Nationwide province GeoPackage has very large geometries. Dropdowns need names and FIDs only.
+        # Avoid loading ~200 MB of polygon geometry into the Render free instance.
+        name_field={"province":"ADM2_EN","municipality":"NAME_2","barangay":"NAME_3"}[level]
+        df=pyogrio.read_dataframe(source,columns=[name_field],read_geometry=False,fid_as_index=True)
     col={"province":"ADM2_EN","municipality":"NAME_2","barangay":"NAME_3"}[level]
     if col not in df.columns:
         raise HTTPException(422,"Missing "+col+" in "+level+" dataset")
