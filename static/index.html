@@ -8,6 +8,14 @@ const layoutCanvas=async()=>{
  if(!result)throw Error('Generate a slope map first');
  
  $('status').textContent='Preparing printable slope map…';
+ // Recenter the actual map on the generated slope polygons before capturing the export.
+ // Keep generous margins so the boundary is not cropped.
+ const previousCenter=map.getCenter(),previousZoom=map.getZoom();
+ if(layer&&layer.getLayers().length){
+   map.invalidateSize();
+   map.fitBounds(layer.getBounds(),{padding:[90,90],animate:false,maxZoom:15});
+   await new Promise(resolve=>setTimeout(resolve,1100));
+ }
  const snapshot=document.createElement('canvas');
  const mapSize=map.getSize();snapshot.width=Math.max(1,Math.round(mapSize.x));snapshot.height=Math.max(1,Math.round(mapSize.y));
  const sc=snapshot.getContext('2d');sc.fillStyle='#e4e8e3';sc.fillRect(0,0,snapshot.width,snapshot.height);
@@ -53,6 +61,7 @@ const layoutCanvas=async()=>{
  x.font='bold 18px Arial';x.fillText('TOTAL',sx+18,y+7);x.fillText(total.toLocaleString('en-US',{maximumFractionDigits:2}),sx+195,y+7);x.fillText(total?'100.00':'0.00',sx+350,y+7);y=ty+280;
  bar('Map Information',39);x.fillStyle='white';x.fillRect(sx,y,sw,165);box(165);x.fillStyle='#111';x.font='17px Arial';x.textAlign='left';
  ['Basemap: Esri World Imagery','Coordinates: WGS 84 (EPSG:4326)','Slope: Classified polygons (A–F)','Generated: '+new Date().toLocaleDateString('en-PH'),'No data is excluded from class totals'].forEach((line,i)=>x.fillText(line,sx+14,y+30+i*27));
+ map.setView(previousCenter,previousZoom,{animate:false});
  return c;
 };
 $('download-jpeg').onclick=async()=>{try{const c=await layoutCanvas();c.toBlob(b=>{if(!b){$('status').textContent='JPEG encoding failed';return}saveBlob(b,'slope-map-layout.jpg');$('status').textContent='JPEG layout ready'},'image/jpeg',.93)}catch(e){$('status').textContent='JPEG error: '+e.message}};
