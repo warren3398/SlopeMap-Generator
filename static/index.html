@@ -22,7 +22,24 @@ const layoutCanvas=async()=>{
  try{
    exportMap.invalidateSize();
    const bounds=layer&&layer.getLayers().length?layer.getBounds():map.getBounds();
-   exportMap.fitBounds(bounds,{padding:[38,38],animate:false,maxZoom:16});
+   exportMap.fitBounds(bounds,{padding:[18,18],animate:false,maxZoom:16});
+   let xs=[],ys=[];
+   for(const feature of result.features||[]){
+     const k=classKey(feature.properties?.slope_class);
+     if(!k||!'ABCDEF'.includes(k))continue;
+     const g=feature.geometry||{};
+     const polys=g.type==='Polygon'?[g.coordinates]:g.type==='MultiPolygon'?g.coordinates:[];
+     for(const poly of polys)for(const ring of poly)for(const coord of ring){
+       const p=exportMap.project([coord[1],coord[0]],exportMap.getZoom());
+       if(Number.isFinite(p.x)&&Number.isFinite(p.y)){xs.push(p.x);ys.push(p.y)}
+     }
+   }
+   if(xs.length){
+     const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
+     const scale=Math.min(printW*.88/Math.max(1,x1-x0),printH*.88/Math.max(1,y1-y0));
+     const center=exportMap.unproject([(x0+x1)/2,(y0+y1)/2],exportMap.getZoom());
+     exportMap.setView(center,Math.min(17,Math.max(1,exportMap.getZoom()+Math.log2(scale))),{animate:false});
+   }
    await new Promise(resolve=>setTimeout(resolve,1200));
    const sc=snapshot.getContext('2d');sc.fillStyle='#e4e8e3';sc.fillRect(0,0,printW,printH);
    const mapRect=host.getBoundingClientRect();
