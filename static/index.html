@@ -77,15 +77,34 @@ const layoutCanvas=async()=>{
  labels.forEach((r,i)=>{const yy=y+53+i*34;x.fillStyle=r[3];x.fillRect(sx+18,yy-17,30,23);x.fillStyle='#111';x.font='18px Arial';x.fillText(r[0],sx+64,yy+2);x.fillText(r[1],sx+108,yy+2);x.font='16px Arial';x.fillText(r[2],sx+226,yy+2)});
  y+=296;bar('Slope Class Summary',39);
  const sums={};for(const t of result.statistics||[]){const k=classKey(t.slope_class);if(k&&'ABCDEF'.includes(k)&&k.length===1)sums[k]=(sums[k]||0)+Number(t.area_ha)};
- const total=Object.values(sums).reduce((a,b)=>a+b,0);const ty=y;x.fillStyle='white';x.fillRect(sx,y,sw,269);box(269);
- x.font='bold 17px Arial';x.fillStyle='#111';x.fillText('Class',sx+15,y+27);x.fillText('Area (ha)',sx+195,y+27);x.fillText('Area (%)',sx+345,y+27);
- y+=39;labels.forEach(r=>{x.strokeStyle='#d1d1d1';x.lineWidth=1;x.beginPath();x.moveTo(sx,y+10);x.lineTo(sx+sw,y+10);x.stroke();x.fillStyle='#111';x.font='18px Arial';x.fillText(r[0],sx+24,y+3);x.fillText((sums[r[0]]||0).toLocaleString('en-US',{maximumFractionDigits:2}),sx+195,y+3);x.fillText(total?((sums[r[0]]||0)*100/total).toFixed(2):'0.00',sx+350,y+3);y+=30});
- x.font='bold 18px Arial';x.fillText('TOTAL',sx+18,y+7);x.fillText(total.toLocaleString('en-US',{maximumFractionDigits:2}),sx+195,y+7);x.fillText(total?'100.00':'0.00',sx+350,y+7);y=ty+280;
+ const total=Object.values(sums).reduce((a,b)=>a+b,0);
+ const ty=y,tableH=265,headerH=42,rowH=29;
+ x.fillStyle='#fff';x.fillRect(sx,ty,sw,tableH);
+ x.strokeStyle='#24553a';x.lineWidth=2;x.strokeRect(sx,ty,sw,tableH);
+ const col1=sx+18,col2=sx+322,col3=sx+sw-18;
+ x.fillStyle='#eef3ef';x.fillRect(sx+2,ty+2,sw-4,headerH);
+ x.fillStyle='#111';x.font='bold 17px Arial';
+ x.textAlign='left';x.fillText('Class',col1,ty+28);
+ x.textAlign='right';x.fillText('Area (ha)',col2,ty+28);x.fillText('Area (%)',col3,ty+28);
+ x.strokeStyle='#c7d4cb';x.lineWidth=1;
+ for(let i=0;i<=7;i++){const lineY=ty+headerH+i*rowH;x.beginPath();x.moveTo(sx+2,lineY);x.lineTo(sx+sw-2,lineY);x.stroke()}
+ const fmt=n=>Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+ labels.forEach((r,i)=>{
+   const yy=ty+headerH+i*rowH+20;
+   x.fillStyle='#111';x.font='17px Arial';
+   x.textAlign='left';x.fillText(r[0],col1,yy);
+   x.textAlign='right';x.fillText(fmt(sums[r[0]]||0),col2,yy);
+   x.fillText(total?fmt((sums[r[0]]||0)*100/total):'0.00',col3,yy);
+ });
+ const totalY=ty+headerH+6*rowH+21;
+ x.fillStyle='#111';x.font='bold 17px Arial';x.textAlign='left';x.fillText('TOTAL',col1,totalY);
+ x.textAlign='right';x.fillText(fmt(total),col2,totalY);x.fillText(total?'100.00':'0.00',col3,totalY);
+ x.textAlign='left';y=ty+tableH+11;
  bar('Map Information',39);x.fillStyle='white';x.fillRect(sx,y,sw,165);box(165);x.fillStyle='#111';x.font='17px Arial';x.textAlign='left';
  ['Basemap: Esri World Imagery','Coordinates: WGS 84 (EPSG:4326)','Slope: Classified polygons (A–F)','Generated: '+new Date().toLocaleDateString('en-PH'),'No data is excluded from class totals'].forEach((line,i)=>x.fillText(line,sx+14,y+30+i*27));
  return c;
 };
-$('download-jpeg').onclick=async()=>{try{const c=await layoutCanvas();c.toBlob(b=>{if(!b){$('status').textContent='JPEG encoding failed';return}saveBlob(b,'slope-map-layout.jpg');$('status').textContent='JPEG layout ready'},'image/jpeg',.98)}catch(e){$('status').textContent='JPEG error: '+e.message}};
+$('download-jpeg').onclick=async()=>{try{const c=await layoutCanvas();c.toBlob(b=>{if(!b){$('status').textContent='JPEG encoding failed';return}saveBlob(b,'slope-map-layout-HD.jpg');$('status').textContent='JPEG layout ready'},'image/jpeg',.98)}catch(e){$('status').textContent='JPEG error: '+e.message}};
 $('download-pdf').onclick=async()=>{try{const c=await layoutCanvas();if(!window.jspdf)throw Error('PDF library unavailable');const pdf=new jspdf.jsPDF({orientation:'landscape',unit:'mm',format:'a3'});pdf.addImage(c.toDataURL('image/jpeg',.98),'JPEG',0,0,420,297);pdf.save('slope-map-layout.pdf');$('status').textContent='PDF layout ready'}catch(e){$('status').textContent='PDF error: '+e.message}};
 $('download-shp').onclick=async()=>{if(!result)return alert('Generate a slope map first');$('status').textContent='Preparing Shapefile ZIP…';try{const r=await fetch('/download/shapefile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(result)});if(!r.ok){const d=await r.json().catch(()=>({}));throw Error(d.detail||'Shapefile export failed')}saveBlob(await r.blob(),'slope-map-shapefile.zip');$('status').textContent='Shapefile ZIP ready'}catch(e){$('status').textContent='Shapefile error: '+e.message}};
 </script></body></html>
