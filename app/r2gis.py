@@ -6,8 +6,10 @@ import geopandas as gpd
 import pyogrio
 from shapely.ops import unary_union
 from shapely.geometry import mapping
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Body
 from botocore.config import Config
+from fastapi.responses import StreamingResponse
+from io import BytesIO
 
 router = APIRouter()
 BUCKET = "slopemap-gis-data"
@@ -209,3 +211,33 @@ async def generate(boundary_file:UploadFile|None=File(None),boundary_code:str|No
         cls=str(r[field]);stats[cls]=stats.get(cls,0)+area
         feats.append({"type":"Feature","properties":{"slope_class":cls,"area_ha":round(area,3)},"geometry":mapping(cut)})
     return {"type":"FeatureCollection","features":feats,"statistics":[{"slope_class":k,"area_ha":round(v,3)} for k,v in sorted(stats.items())],"total_classified_ha":round(sum(stats.values()),3)}
+
+@router.post("/download/shapefile")
+def download_shapefile(payload:dict=Body(...)):
+    features=payload.get("features",[])
+    if not isinstance(features,list) or not features:
+        raise HTTPException(400,"Generate a slope map before downloading the shapefile")
+    if len(features)>200000:
+        raise HTTPException(413,"Too many features for one shapefile")
+    try:
+        import tempfile
+        import zipfile
+        from pathlib import Path
+        from shapely.geometry import shape
+        records=[]
+        for feat in features:
+            props=feat.get("properties",{})
+            geom=shape(feat["geometry"])
+            if geom.is_empty or geom.geom_type not in ("Polygon","MultiPolygon"):continue
+            records.append({"slope_cls":str(props.get("slope_class",""))[:20],"area_ha":float(props.get("area_ha",0)), "geometry":geom})
+        if not records:raise HTTPException(400,"No polygon features to export")
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/"slope_map.shp"
+            gpd.GeoDataFrame(records,geometry="geometry",crs="EPSG:4326").to_file(path,driver="ESRI Shapefile",engine="pyogrio",encoding="UTF-8")
+            buffer=BytesIO()
+            with zipfile.ZipFile(buffer,"w",zipfile.ZIP_DEFLATED) as archive:
+                for file in Path(folder).glob("slope_map.*"):archive.write(file,file.name)
+            buffer.seek(0)
+            return StreamingResponse(buffer,media_type="application/zip",headers={"Content-Disposition":'attachment; filename="slope_map_shapefile.zip"'})
+    except HTTPException:raise
+    except Exception as exc:raise HTTPException(422,"Shapefile export failed: "+str(exc)[:150])
