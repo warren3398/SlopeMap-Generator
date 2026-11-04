@@ -43,10 +43,18 @@ def local_file(kind):
 def read_parcel(raw,filename):
     if len(raw)>50*1024*1024: raise HTTPException(413,"Parcel upload exceeds 50 MB")
     ext=Path(filename).suffix.lower()
-    if ext not in (".zip",".gpkg",".geojson",".json"):raise HTTPException(400,"Use Shapefile ZIP, GPKG or GeoJSON")
+    if ext not in (".zip",".gpkg",".geojson",".json",".kml",".kmz"):raise HTTPException(400,"Use Shapefile ZIP, GPKG, GeoJSON, KML or KMZ")
     with tempfile.TemporaryDirectory() as d:
         path=Path(d)/("parcel"+ext)
         path.write_bytes(raw)
+        if ext==".kmz":
+            try:
+                with zipfile.ZipFile(path) as z:
+                    entries=[i for i in z.infolist() if i.filename.lower().endswith(".kml") and i.file_size<50*1024*1024]
+                    if not entries:raise HTTPException(400,"KMZ does not contain KML")
+                    path=Path(d)/"parcel.kml"
+                    path.write_bytes(z.read(entries[0]))
+            except zipfile.BadZipFile:raise HTTPException(400,"Invalid KMZ")
         if ext==".zip":
             try:
                 with zipfile.ZipFile(path) as z:
@@ -60,7 +68,7 @@ def read_parcel(raw,filename):
             files=list(Path(d).rglob("*.shp"))
             if len(files)!=1:raise HTTPException(400,"ZIP must have exactly one shapefile")
             path=files[0]
-        try:gdf=gpd.read_file(path)
+        try:gdf=gpd.read_file(path,driver="KML" if path.suffix.lower()==".kml" else None)
         except Exception:raise HTTPException(400,"Cannot read parcel")
     if gdf.empty or gdf.crs is None:raise HTTPException(400,"Parcel empty or CRS missing")
     if not gdf.geom_type.isin(["Polygon","MultiPolygon"]).all():raise HTTPException(400,"Parcel must contain polygons")
@@ -90,8 +98,11 @@ def valid_poly(geometry):
 
 def intersecting(kind,geom):
     # GeoPackage uses spatial index when the layer provides one.
-    bounds=geom.bounds
-    try: gdf=gpd.read_file(local_file(kind),bbox=bounds)
+    try:
+        source=local_file(kind)
+        source_crs=pyogrio.read_info(source)["crs"]
+        bounds=gpd.GeoSeries([geom],crs=4326).to_crs(source_crs).total_bounds
+        gdf=gpd.read_file(source,bbox=tuple(bounds))
     except Exception as exc:raise HTTPException(422,"Cannot read "+kind+" GeoPackage: "+type(exc).__name__)
     if gdf.crs is None:raise HTTPException(422,kind+" dataset missing CRS")
     gdf=gdf.to_crs(4326)
