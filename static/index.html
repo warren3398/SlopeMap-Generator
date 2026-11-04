@@ -13,7 +13,7 @@ const layoutCanvas=async()=>{
  const previousCenter=map.getCenter(),previousZoom=map.getZoom();
  if(layer&&layer.getLayers().length){
    map.invalidateSize();
-   map.fitBounds(layer.getBounds(),{padding:[90,90],animate:false,maxZoom:15});
+   map.fitBounds(layer.getBounds(),{padding:[150,150],animate:false,maxZoom:15});
    await new Promise(resolve=>setTimeout(resolve,1100));
  }
  const snapshot=document.createElement('canvas');
@@ -40,7 +40,14 @@ const layoutCanvas=async()=>{
  x.fillStyle='white';x.fillRect(0,0,c.width,c.height);
  x.strokeStyle='#263c31';x.lineWidth=2;x.strokeRect(12,12,1776,1096);
  const mx=40,my=45,mw=1220,mh=1030;
- x.drawImage(snapshot,mx,my,mw,mh);
+ // Preserve the geographic aspect ratio. Crop the centered viewport instead of stretching pixels.
+ // The slope boundary is centered by fitBounds above, with export-safe padding.
+ const sourceRatio=snapshot.width/snapshot.height,targetRatio=mw/mh;
+ let cropW=snapshot.width,cropH=snapshot.height;
+ if(sourceRatio>targetRatio)cropW=snapshot.height*targetRatio;
+ else cropH=snapshot.width/targetRatio;
+ const cropX=(snapshot.width-cropW)/2,cropY=(snapshot.height-cropH)/2;
+ x.drawImage(snapshot,cropX,cropY,cropW,cropH,mx,my,mw,mh);
  x.strokeStyle='#1b2e26';x.lineWidth=3;x.strokeRect(mx,my,mw,mh);
  x.font='bold 38px Arial';x.textAlign='center';x.fillStyle='white';x.strokeStyle='#15231b';x.lineWidth=5;x.strokeText('N',1200,105);x.fillText('N',1200,105);
  x.beginPath();x.moveTo(1200,118);x.lineTo(1186,156);x.lineTo(1200,147);x.lineTo(1214,156);x.closePath();x.fillStyle='white';x.fill();x.stroke();
