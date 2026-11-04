@@ -68,7 +68,7 @@ def boundaries(level: str, parent_code: str | None = None):
     if level not in ("region", "province", "municipality", "barangay"):
         raise HTTPException(400, "Invalid level")
     with engine().connect() as conn:
-        rows = conn.execute(text("SELECT code,name FROM admin_boundaries WHERE level=:level AND (:parent IS NULL OR parent_code=:parent) ORDER BY name"), {"level": level, "parent": parent_code}).mappings().all()
+        rows = conn.execute(text("SELECT boundary_code AS code,boundary_name AS name FROM slopemap.admin_boundaries WHERE level=:level AND (:parent IS NULL OR parent_code=:parent) ORDER BY name"), {"level": level, "parent": parent_code}).mappings().all()
     return list(map(dict, rows))
 
 @app.post("/generate")
@@ -80,15 +80,15 @@ async def generate(boundary_file: UploadFile | None = File(None), boundary_code:
         geojson = json.dumps(geom.__geo_interface__)
     else:
         with engine().connect() as conn:
-            geojson = conn.execute(text("SELECT ST_AsGeoJSON(geom) FROM admin_boundaries WHERE code=:code"), {"code": boundary_code}).scalar()
+            geojson = conn.execute(text("SELECT extensions.ST_AsGeoJSON(geom) FROM slopemap.admin_boundaries WHERE boundary_code=:code"), {"code": boundary_code}).scalar()
         if not geojson:
             raise HTTPException(404, "Administrative boundary not found")
-    sql = text("""WITH b AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON(:geom),4326) AS geom),
-    clipped AS (SELECT s.slope_class, ST_CollectionExtract(ST_Intersection(ST_MakeValid(s.geom), ST_MakeValid(b.geom)),3) AS geom
-    FROM master_slope s CROSS JOIN b WHERE ST_Intersects(s.geom,b.geom))
-    SELECT slope_class, ST_AsGeoJSON(geom) AS geometry,
-    ST_Area(ST_Transform(geom,6933))/10000.0 AS area_ha
-    FROM clipped WHERE NOT ST_IsEmpty(geom)""")
+    sql = text("""WITH b AS (SELECT extensions.ST_SetSRID(extensions.ST_GeomFromGeoJSON(:geom),4326) AS geom),
+    clipped AS (SELECT s.slope_class, extensions.ST_CollectionExtract(extensions.ST_Intersection(extensions.ST_MakeValid(s.geom), extensions.ST_MakeValid(b.geom)),3) AS geom
+    FROM slopemap.master_slope s CROSS JOIN b WHERE extensions.ST_Intersects(s.geom,b.geom))
+    SELECT slope_class, extensions.ST_AsGeoJSON(geom) AS geometry,
+    extensions.ST_Area(extensions.ST_Transform(geom,6933))/10000.0 AS area_ha
+    FROM clipped WHERE NOT extensions.ST_IsEmpty(geom)""")
     with engine().connect() as conn:
         rows = conn.execute(sql, {"geom": geojson}).mappings().all()
     features, stats = [], {}
