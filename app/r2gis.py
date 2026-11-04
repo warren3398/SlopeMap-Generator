@@ -112,6 +112,20 @@ def intersecting(kind,geom):
 def status():
     return {"storage":"Cloudflare R2","bucket":BUCKET,"configured":configured(),"datasets":list(KEYS)}
 
+@router.get("/gis/inspect-boundaries")
+def inspect_boundaries():
+    result={}
+    for level in ("region","province","municipality","barangay"):
+        try:
+            path=local_file(level)
+            info=pyogrio.read_info(path)
+            df=pyogrio.read_dataframe(path,max_features=3)
+            cols=[str(c) for c in df.columns if c!=df.geometry.name]
+            result[level]={"count":int(info["features"]),"columns":cols,"samples":[{c:str(row[c])[:70] for c in cols} for _,row in df.iterrows()]}
+        except Exception as exc:
+            result[level]={"error":type(exc).__name__}
+    return result
+
 @router.get("/boundaries")
 def boundaries(level:str,parent_code:str|None=None):
     if level not in ("region","province","municipality","barangay"):raise HTTPException(400,"Invalid level")
