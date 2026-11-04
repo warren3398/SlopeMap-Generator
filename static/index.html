@@ -11,7 +11,7 @@ const layoutCanvas=async()=>{
 
  // Render a dedicated print-size map, not the browser's screen-shaped map.
  // This ensures that fitBounds uses exactly the printed map frame's aspect ratio.
- const printW=1220,printH=1030;
+ const printW=2440,printH=2060;
  const host=document.createElement('div');
  host.style.cssText='position:fixed;left:-20000px;top:0;width:'+printW+'px;height:'+printH+'px;pointer-events:none;';
  document.body.append(host);
@@ -58,8 +58,8 @@ const layoutCanvas=async()=>{
    }
  }finally{exportMap.remove();host.remove()}
 
- const c=document.createElement('canvas');c.width=1800;c.height=1120;const x=c.getContext('2d');
- x.fillStyle='white';x.fillRect(0,0,c.width,c.height);
+ const c=document.createElement('canvas');c.width=3600;c.height=2240;const x=c.getContext('2d');x.scale(2,2);
+ x.fillStyle='white';x.fillRect(0,0,1800,1120);
  x.strokeStyle='#263c31';x.lineWidth=2;x.strokeRect(12,12,1776,1096);
  const mx=40,my=45,mw=1220,mh=1030;
  x.drawImage(snapshot,mx,my,mw,mh);
@@ -85,7 +85,7 @@ const layoutCanvas=async()=>{
  ['Basemap: Esri World Imagery','Coordinates: WGS 84 (EPSG:4326)','Slope: Classified polygons (A–F)','Generated: '+new Date().toLocaleDateString('en-PH'),'No data is excluded from class totals'].forEach((line,i)=>x.fillText(line,sx+14,y+30+i*27));
  return c;
 };
-$('download-jpeg').onclick=async()=>{try{const c=await layoutCanvas();c.toBlob(b=>{if(!b){$('status').textContent='JPEG encoding failed';return}saveBlob(b,'slope-map-layout.jpg');$('status').textContent='JPEG layout ready'},'image/jpeg',.93)}catch(e){$('status').textContent='JPEG error: '+e.message}};
-$('download-pdf').onclick=async()=>{try{const c=await layoutCanvas();if(!window.jspdf)throw Error('PDF library unavailable');const pdf=new jspdf.jsPDF({orientation:'landscape',unit:'mm',format:'a3'});pdf.addImage(c.toDataURL('image/jpeg',.94),'JPEG',0,0,420,297);pdf.save('slope-map-layout.pdf');$('status').textContent='PDF layout ready'}catch(e){$('status').textContent='PDF error: '+e.message}};
+$('download-jpeg').onclick=async()=>{try{const c=await layoutCanvas();c.toBlob(b=>{if(!b){$('status').textContent='JPEG encoding failed';return}saveBlob(b,'slope-map-layout.jpg');$('status').textContent='JPEG layout ready'},'image/jpeg',.98)}catch(e){$('status').textContent='JPEG error: '+e.message}};
+$('download-pdf').onclick=async()=>{try{const c=await layoutCanvas();if(!window.jspdf)throw Error('PDF library unavailable');const pdf=new jspdf.jsPDF({orientation:'landscape',unit:'mm',format:'a3'});pdf.addImage(c.toDataURL('image/jpeg',.98),'JPEG',0,0,420,297);pdf.save('slope-map-layout.pdf');$('status').textContent='PDF layout ready'}catch(e){$('status').textContent='PDF error: '+e.message}};
 $('download-shp').onclick=async()=>{if(!result)return alert('Generate a slope map first');$('status').textContent='Preparing Shapefile ZIP…';try{const r=await fetch('/download/shapefile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(result)});if(!r.ok){const d=await r.json().catch(()=>({}));throw Error(d.detail||'Shapefile export failed')}saveBlob(await r.blob(),'slope-map-shapefile.zip');$('status').textContent='Shapefile ZIP ready'}catch(e){$('status').textContent='Shapefile error: '+e.message}};
 </script></body></html>
