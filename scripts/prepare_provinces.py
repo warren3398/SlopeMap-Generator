@@ -43,6 +43,9 @@ def main():
             "SELECT "+ident(province_pk)+" FROM "+ident(province_layer)+" ORDER BY "+ident(province_pk))]
     total=len(province_fids)
     storage=client()
+    prepared_count=0
+    no_coverage=[]
+    too_large=[]
     with sqlite3.connect(str(slope)) as db:
         table,geom=db.execute("SELECT table_name,column_name FROM gpkg_geometry_columns LIMIT 1").fetchone()
         rtree="rtree_"+table+"_"+geom
@@ -97,13 +100,25 @@ def main():
                     # at 0.002–0.006 degrees produced large triangular artifacts.
                     display=cut
                     features.append({"type":"Feature","properties":{"slope_class":cls,"area_ha":round(area,3)},"geometry":mapping(display)})
+            if not features:
+                no_coverage.append(fid)
+                print("NO_SLOPE_COVERAGE",fid,"- not publishing empty map",flush=True)
+                continue
             result={"type":"FeatureCollection","features":features,
                     "statistics":[{"slope_class":k,"area_ha":round(v,3)} for k,v in sorted(stats.items())],
                     "total_classified_ha":round(sum(stats.values()),3),"geometry_generalized":False}
             body=json.dumps(result,separators=(",",":"),allow_nan=False).encode("utf-8")
+            if len(body)>50*1024*1024:
+                too_large.append(fid)
+                print("OVERSIZED",fid,len(body),"bytes - not publishing browser-unusable GeoJSON",flush=True)
+                continue
             # Avoid publishing an incomplete/truncated map as ready.
             storage.put_object(Bucket=BUCKET,Key=key,Body=body,ContentType="application/geo+json")
+            prepared_count+=1
             print("DONE",fid,len(features),len(body),"bytes",round(time.monotonic()-start,1),"sec",flush=True)
+    print("SUMMARY",json.dumps({"published":prepared_count,"no_slope_coverage":no_coverage,"oversized":too_large}),flush=True)
+    if no_coverage or too_large:
+        print("WARNING: Source coverage/geometry size prevents these provinces from being ready.",flush=True)
     print("Completed requested province range.",flush=True)
 
 if __name__=="__main__":
