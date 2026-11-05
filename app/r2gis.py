@@ -116,6 +116,20 @@ def intersecting(kind,geom):
 def status():
     return {"storage":"Cloudflare R2","bucket":BUCKET,"configured":configured(),"datasets":list(KEYS)}
 
+@router.get("/gis/preprocessing-status")
+def preprocessing_status():
+    prefix="prepared/provinces/v1/"
+    count=0
+    continuation=None
+    while True:
+        params={"Bucket":BUCKET,"Prefix":prefix,"MaxKeys":1000}
+        if continuation:params["ContinuationToken"]=continuation
+        response=client().list_objects_v2(**params)
+        count+=sum(1 for o in response.get("Contents",[]) if o["Key"].endswith(".geojson"))
+        if not response.get("IsTruncated"):break
+        continuation=response.get("NextContinuationToken")
+    return {"ready_provinces":count,"total_provinces":int(pyogrio.read_info(local_file("province"))["features"]),"storage":"Cloudflare R2"}
+
 @router.get("/gis/inspect-slope")
 def inspect_slope():
     path=local_file("slope")
