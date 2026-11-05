@@ -8,7 +8,7 @@ import argparse
 import json
 import sqlite3
 import time
-from shapely import from_wkb
+from shapely import from_wkb, set_precision
 from shapely.geometry import mapping, MultiPolygon
 from shapely.ops import transform
 from pyproj import Transformer
@@ -33,6 +33,7 @@ def main():
     to_source=Transformer.from_crs(4326,info["crs"],always_xy=True).transform
     to_wgs=Transformer.from_crs(info["crs"],4326,always_xy=True).transform
     to_area=Transformer.from_crs(4326,6933,always_xy=True).transform
+    from_area=Transformer.from_crs(6933,4326,always_xy=True).transform
     province_info=pyogrio.read_info(provinces)
     # Use actual GeoPackage feature IDs, which need not begin at zero.
     with sqlite3.connect(str(provinces)) as province_db:
@@ -98,7 +99,11 @@ def main():
                     stats[cls]=stats.get(cls,0)+area
                     # Preserve original clipped polygon topology. Degree-based simplification
                     # at 0.002–0.006 degrees produced large triangular artifacts.
-                    display=cut
+                    # Simplify in equal-area metric CRS, not longitude/latitude degrees.
+                    # Preserve topology and use a small tolerance to avoid spiky triangles.
+                    display_metric=transform(to_area,cut)
+                    display_metric=display_metric.simplify(12,preserve_topology=True)
+                    display=transform(from_area,display_metric)
                     features.append({"type":"Feature","properties":{"slope_class":cls,"area_ha":round(area,3)},"geometry":mapping(display)})
             if not features:
                 no_coverage.append(fid)
@@ -106,11 +111,13 @@ def main():
                 continue
             result={"type":"FeatureCollection","features":features,
                     "statistics":[{"slope_class":k,"area_ha":round(v,3)} for k,v in sorted(stats.items())],
-                    "total_classified_ha":round(sum(stats.values()),3),"geometry_generalized":False}
+                    "total_classified_ha":round(sum(stats.values()),3),"geometry_generalized":True}
             body=json.dumps(result,separators=(",",":"),allow_nan=False).encode("utf-8")
             if len(body)>50*1024*1024:
+                # Avoid shipping enormous full-resolution vectors to Leaflet.
+                # Fail explicitly rather than silently degrading beyond safe tolerance.
                 too_large.append(fid)
-                print("OVERSIZED",fid,len(body),"bytes - not publishing browser-unusable GeoJSON",flush=True)
+                print("OVERSIZED",fid,len(body),"bytes - requires vector tiles",flush=True)
                 continue
             # Avoid publishing an incomplete/truncated map as ready.
             storage.put_object(Bucket=BUCKET,Key=key,Body=body,ContentType="application/geo+json")
