@@ -1,0 +1,35 @@
+name: Prepare nationwide slope provinces
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "First province FID (0-based)"
+        required: true
+        default: "0"
+      limit:
+        description: "Number of provinces in this batch (use 1 for initial test)"
+        required: true
+        default: "1"
+jobs:
+  preprocess:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    concurrency:
+      group: slope-preprocessing
+      cancel-in-progress: false
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate credentials
+        run: |
+          test -n "$R2_ACCOUNT_ID" && test -n "$R2_ACCESS_KEY_ID" && test -n "$R2_SECRET_ACCESS_KEY" || (echo "Configure R2_* GitHub Actions secrets first"; exit 1)
+      - name: Install GIS dependencies
+        run: pip install -r requirements.txt
+      - name: Preprocess and upload
+        run: python -m scripts.prepare_provinces --start "${{ inputs.start }}" --limit "${{ inputs.limit }}"
