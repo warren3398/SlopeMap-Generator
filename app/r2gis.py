@@ -192,29 +192,53 @@ async def generate(boundary_file:UploadFile|None=File(None),boundary_code:str|No
     else:
         boundary=selected_geometry(boundary_code)
     if boundary.is_empty:raise HTTPException(400,"Empty boundary")
-    slope=intersecting("slope",boundary)
-    if slope.empty:return {"type":"FeatureCollection","features":[],"statistics":[],"total_classified_ha":0}
-    field=slope_column([c for c in slope.columns if c!=slope.geometry.name])
-    feats=[]; stats={}
-    from pyproj import Transformer
+    # Process spatially filtered slope features in small batches to avoid Render OOM.
+    # A nationwide GeoPackage can contain extremely detailed polygon geometry.
+    from pyproj import Transformer, CRS
     from shapely.ops import transform
-    area_transform=Transformer.from_crs(4326,6933,always_xy=True).transform
-    for _,r in slope.iterrows():
-        g=valid_poly(r.geometry)
-        if g is None or g.is_empty:continue
-        cut=valid_poly(g.intersection(boundary))
-        if cut is None or cut.is_empty:continue
-        # Retain polygonal pieces including tiny slivers.
-        if cut.geom_type=="GeometryCollection":
-            from shapely.geometry import MultiPolygon
-            pieces=[p for p in cut.geoms if p.geom_type=="Polygon"]
-            pieces += [p for m in cut.geoms if m.geom_type=="MultiPolygon" for p in m.geoms]
-            if not pieces:continue
-            cut=MultiPolygon(pieces)
-        if cut.geom_type not in ("Polygon","MultiPolygon"):continue
-        area=float(transform(area_transform,cut).area)/10000
-        cls=str(r[field]);stats[cls]=stats.get(cls,0)+area
-        feats.append({"type":"Feature","properties":{"slope_class":cls,"area_ha":round(area,3)},"geometry":mapping(cut)})
+    from shapely.geometry import MultiPolygon
+    source=local_file("slope")
+    info=pyogrio.read_info(source)
+    source_crs=info.get("crs")
+    if not source_crs:raise HTTPException(422,"Slope dataset missing CRS")
+    field=slope_column(info["fields"])
+    to_source=Transformer.from_crs(4326,source_crs,always_xy=True).transform
+    to_wgs=Transformer.from_crs(source_crs,4326,always_xy=True).transform
+    to_area=Transformer.from_crs(4326,6933,always_xy=True).transform
+    boundary_source=transform(to_source,boundary)
+    bounds=boundary_source.bounds
+    feats=[];stats={};offset=0;batch_size=75
+    # Hard limit protects free-tier memory and the browser from excessively large GeoJSON.
+    vertex_budget=0
+    while True:
+        try:
+            batch=pyogrio.read_dataframe(source,bbox=bounds,columns=[field],skip_features=offset,max_features=batch_size)
+        except Exception as exc:
+            raise HTTPException(422,"Cannot read slope GeoPackage: "+type(exc).__name__)
+        if batch.empty:break
+        count=len(batch)
+        for _,r in batch.iterrows():
+            g=valid_poly(r.geometry)
+            if g is None or g.is_empty or not g.intersects(boundary_source):continue
+            cut=valid_poly(g.intersection(boundary_source))
+            if cut is None or cut.is_empty:continue
+            if cut.geom_type=="GeometryCollection":
+                pieces=[p for p in cut.geoms if p.geom_type=="Polygon"]
+                pieces += [p for m in cut.geoms if p.geom_type=="MultiPolygon" for p in m.geoms]
+                if not pieces:continue
+                cut=MultiPolygon(pieces)
+            if cut.geom_type not in ("Polygon","MultiPolygon"):continue
+            cut=transform(to_wgs,cut)
+            area=float(transform(to_area,cut).area)/10000
+            cls=str(r[field]);stats[cls]=stats.get(cls,0)+area
+            geometry=mapping(cut)
+            vertex_budget+=len(str(geometry))
+            if vertex_budget>22_000_000:
+                raise HTTPException(413,"Selected area has too much detailed slope geometry for online generation. Please select a smaller municipality/barangay or upload a parcel boundary.")
+            feats.append({"type":"Feature","properties":{"slope_class":cls,"area_ha":round(area,3)},"geometry":geometry})
+        offset+=count
+        del batch
+        if count<batch_size:break
     return {"type":"FeatureCollection","features":feats,"statistics":[{"slope_class":k,"area_ha":round(v,3)} for k,v in sorted(stats.items())],"total_classified_ha":round(sum(stats.values()),3)}
 
 @router.post("/download/shapefile")
