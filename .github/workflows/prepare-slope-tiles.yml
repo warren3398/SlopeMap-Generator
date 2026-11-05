@@ -26,7 +26,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          pip install Pillow>=10,<12
+          pip install 'Pillow>=10,<12'
       - name: Prepare and upload raster tiles
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
