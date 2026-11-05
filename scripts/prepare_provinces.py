@@ -34,7 +34,14 @@ def main():
     to_wgs=Transformer.from_crs(info["crs"],4326,always_xy=True).transform
     to_area=Transformer.from_crs(4326,6933,always_xy=True).transform
     province_info=pyogrio.read_info(provinces)
-    # GeoPackage FIDs are database primary keys and commonly begin at 1, not 0.\n    # Enumerate actual identifiers so batches match the UI province:<FID> codes.\n    with sqlite3.connect(str(provinces)) as province_db:\n        province_layer=province_db.execute("SELECT table_name FROM gpkg_geometry_columns LIMIT 1").fetchone()[0]\n        province_cols=province_db.execute("PRAGMA table_info("+ident(province_layer)+")").fetchall()\n        province_pk=next((r[1] for r in province_cols if r[5]),"fid")\n        province_fids=[int(row[0]) for row in province_db.execute("SELECT "+ident(province_pk)+" FROM "+ident(province_layer)+" ORDER BY "+ident(province_pk))]\n    total=len(province_fids)
+    # Use actual GeoPackage feature IDs, which need not begin at zero.
+    with sqlite3.connect(str(provinces)) as province_db:
+        province_layer=province_db.execute("SELECT table_name FROM gpkg_geometry_columns LIMIT 1").fetchone()[0]
+        province_cols=province_db.execute("PRAGMA table_info("+ident(province_layer)+")").fetchall()
+        province_pk=next((r[1] for r in province_cols if r[5]),"fid")
+        province_fids=[int(row[0]) for row in province_db.execute(
+            "SELECT "+ident(province_pk)+" FROM "+ident(province_layer)+" ORDER BY "+ident(province_pk))]
+    total=len(province_fids)
     storage=client()
     with sqlite3.connect(str(slope)) as db:
         table,geom=db.execute("SELECT table_name,column_name FROM gpkg_geometry_columns LIMIT 1").fetchone()
