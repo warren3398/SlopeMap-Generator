@@ -210,29 +210,44 @@ async def generate(boundary_file:UploadFile|None=File(None),boundary_code:str|No
     feats=[];stats={};batch_size=60
     province_view=bool(boundary_code and boundary_code.startswith("province:"))
     vertex_budget=0
-    # Query GeoPackage RTree once. Repeated bbox + skip_features scans were
-    # re-running the same spatial search on every batch (very slow for provinces).
-    with sqlite3.connect(str(source)) as db:
+    # Stream indexed rows through one SQLite cursor, rather than reopening GDAL
+    # for every FID batch (which caused multi-minute requests and 502s).
+    from shapely import from_wkb
+    import time
+    started=time.monotonic()
+    def ident(name):
+        return '"'+str(name).replace('"','""')+'"'
+    db=sqlite3.connect(str(source))
+    try:
         row=db.execute("SELECT table_name,column_name FROM gpkg_geometry_columns LIMIT 1").fetchone()
         if not row:raise HTTPException(422,"Slope GeoPackage has no geometry layer")
         table_name,geom_name=row
         rtree_name="rtree_"+table_name+"_"+geom_name
         exists=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(rtree_name,)).fetchone()
         if not exists:
-            raise HTTPException(422,"Slope GeoPackage has no spatial index. Re-export the slope dataset with a GeoPackage RTree spatial index for province-level generation.")
-        safe_name='"'+rtree_name.replace('"','""')+'"'
-        candidates=[r[0] for r in db.execute(
-            "SELECT id FROM "+safe_name+" WHERE minx<=? AND maxx>=? AND miny<=? AND maxy>=?",
-            (bounds[2],bounds[0],bounds[3],bounds[1]))]
-    if len(candidates)>100000:
-        raise HTTPException(413,"This province contains too many slope features for synchronous generation.")
-    for i in range(0,len(candidates),batch_size):
-        try:
-            batch=pyogrio.read_dataframe(source,fids=candidates[i:i+batch_size],columns=[field])
-        except Exception as exc:
-            raise HTTPException(422,"Cannot read indexed slope features: "+type(exc).__name__)
-        for _,r in batch.iterrows():
-            g=valid_poly(r.geometry)
+            raise HTTPException(422,"Slope GeoPackage has no RTree spatial index.")
+        table_info=db.execute("PRAGMA table_info("+ident(table_name)+")").fetchall()
+        pk=next((r[1] for r in table_info if r[5]),"fid")
+        sql=("SELECT t."+ident(geom_name)+",t."+ident(field)+" FROM "+ident(table_name)+
+             " t JOIN "+ident(rtree_name)+" r ON t."+ident(pk)+"=r.id"+
+             " WHERE r.minx<=? AND r.maxx>=? AND r.miny<=? AND r.maxy>=?")
+        cursor=db.execute(sql,(bounds[2],bounds[0],bounds[3],bounds[1]))
+        while True:
+            if time.monotonic()-started>85:
+                raise HTTPException(413,"Province processing exceeded 85 seconds. Please select a municipality or barangay; a province-wide optimized dataset is required.")
+            rows=cursor.fetchmany(batch_size)
+            if not rows:break
+            for blob,cls_value in rows:
+                if blob is None:continue
+                # GeoPackage binary header: 8 bytes plus optional XY/XYZ envelope.
+                flags=blob[3]
+                envelope=(flags>>1)&7
+                envelope_bytes={0:0,1:32,2:48,3:48,4:64}.get(envelope)
+                if envelope_bytes is None:continue
+                g=from_wkb(bytes(blob)[8+envelope_bytes:])
+                r={field:cls_value}
+
+            g=valid_poly(g)
             if g is None or g.is_empty or not g.intersects(boundary_source):continue
             cut=valid_poly(g.intersection(boundary_source))
             if cut is None or cut.is_empty:continue
@@ -255,7 +270,8 @@ async def generate(boundary_file:UploadFile|None=File(None),boundary_code:str|No
             if vertex_budget>45_000_000:
                 raise HTTPException(413,"The selected area exceeds the online map geometry limit even after optimization. Please select a smaller area.")
             feats.append({"type":"Feature","properties":{"slope_class":cls,"area_ha":round(area,3)},"geometry":geometry})
-        del batch
+    finally:
+        db.close()
     return {"type":"FeatureCollection","features":feats,"statistics":[{"slope_class":k,"area_ha":round(v,3)} for k,v in sorted(stats.items())],"total_classified_ha":round(sum(stats.values()),3),"geometry_generalized":province_view}
 
 @router.post("/download/shapefile")
