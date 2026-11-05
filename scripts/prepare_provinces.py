@@ -93,13 +93,13 @@ def main():
                     area=transform(to_area,cut).area/10000
                     cls=str(value)
                     stats[cls]=stats.get(cls,0)+area
-                    display=cut.simplify(0.002,preserve_topology=True)
-                    if len(display.wkb)>100000:
-                        display=cut.simplify(0.006,preserve_topology=True)
+                    # Preserve original clipped polygon topology. Degree-based simplification
+                    # at 0.002–0.006 degrees produced large triangular artifacts.
+                    display=cut
                     features.append({"type":"Feature","properties":{"slope_class":cls,"area_ha":round(area,3)},"geometry":mapping(display)})
             result={"type":"FeatureCollection","features":features,
                     "statistics":[{"slope_class":k,"area_ha":round(v,3)} for k,v in sorted(stats.items())],
-                    "total_classified_ha":round(sum(stats.values()),3),"geometry_generalized":True}
+                    "total_classified_ha":round(sum(stats.values()),3),"geometry_generalized":False}
             body=json.dumps(result,separators=(",",":"),allow_nan=False).encode("utf-8")
             # Avoid publishing an incomplete/truncated map as ready.
             storage.put_object(Bucket=BUCKET,Key=key,Body=body,ContentType="application/geo+json")
