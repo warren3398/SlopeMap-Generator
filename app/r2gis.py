@@ -104,11 +104,13 @@ def intersecting(kind,geom):
         source=local_file(kind)
         source_crs=pyogrio.read_info(source)["crs"]
         bounds=gpd.GeoSeries([geom],crs=4326).to_crs(source_crs).total_bounds
-        gdf=gpd.read_file(source,bbox=tuple(bounds))
+        gdf=pyogrio.read_dataframe(source,bbox=tuple(bounds),use_arrow=False)
     except Exception as exc:raise HTTPException(422,"Cannot read "+kind+" GeoPackage: "+type(exc).__name__)
     if gdf.crs is None:raise HTTPException(422,kind+" dataset missing CRS")
-    gdf=gdf.to_crs(4326)
-    return gdf[gdf.geometry.intersects(geom)].copy()
+    # Filter candidates in source CRS before transforming potentially large geometries.
+    target_geom=gpd.GeoSeries([geom],crs=4326).to_crs(gdf.crs).iloc[0]
+    gdf=gdf[gdf.geometry.intersects(target_geom)].copy()
+    return gdf.to_crs(4326)
 
 @router.get("/gis/status")
 def status():
@@ -194,6 +196,9 @@ async def generate(boundary_file:UploadFile|None=File(None),boundary_code:str|No
     if slope.empty:return {"type":"FeatureCollection","features":[],"statistics":[],"total_classified_ha":0}
     field=slope_column([c for c in slope.columns if c!=slope.geometry.name])
     feats=[]; stats={}
+    from pyproj import Transformer
+    from shapely.ops import transform
+    area_transform=Transformer.from_crs(4326,6933,always_xy=True).transform
     for _,r in slope.iterrows():
         g=valid_poly(r.geometry)
         if g is None or g.is_empty:continue
@@ -207,7 +212,7 @@ async def generate(boundary_file:UploadFile|None=File(None),boundary_code:str|No
             if not pieces:continue
             cut=MultiPolygon(pieces)
         if cut.geom_type not in ("Polygon","MultiPolygon"):continue
-        area=float(gpd.GeoSeries([cut],crs=4326).to_crs(6933).area.iloc[0])/10000
+        area=float(transform(area_transform,cut).area)/10000
         cls=str(r[field]);stats[cls]=stats.get(cls,0)+area
         feats.append({"type":"Feature","properties":{"slope_class":cls,"area_ha":round(area,3)},"geometry":mapping(cut)})
     return {"type":"FeatureCollection","features":feats,"statistics":[{"slope_class":k,"area_ha":round(v,3)} for k,v in sorted(stats.items())],"total_classified_ha":round(sum(stats.values()),3)}
