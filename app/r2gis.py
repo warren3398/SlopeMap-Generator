@@ -120,15 +120,21 @@ def status():
 def preprocessing_status():
     prefix="prepared/provinces/v1/"
     count=0
+    empty_or_invalid=0
+    oversized=0
     continuation=None
     while True:
         params={"Bucket":BUCKET,"Prefix":prefix,"MaxKeys":1000}
         if continuation:params["ContinuationToken"]=continuation
         response=client().list_objects_v2(**params)
-        count+=sum(1 for o in response.get("Contents",[]) if o["Key"].endswith(".geojson"))
+        for o in response.get("Contents",[]):
+            if not o["Key"].endswith(".geojson"):continue
+            if o["Size"]<=150:empty_or_invalid+=1
+            elif o["Size"]>50*1024*1024:oversized+=1
+            else:count+=1
         if not response.get("IsTruncated"):break
         continuation=response.get("NextContinuationToken")
-    return {"ready_provinces":count,"total_provinces":int(pyogrio.read_info(local_file("province"))["features"]),"storage":"Cloudflare R2"}
+    return {"ready_provinces":count,"empty_or_invalid":empty_or_invalid,"oversized":oversized,"total_provinces":int(pyogrio.read_info(local_file("province"))["features"]),"storage":"Cloudflare R2","note":"Ready counts exclude empty and >50 MB prepared objects; coverage is limited to the uploaded slope source dataset."}
 
 @router.get("/gis/inspect-slope")
 def inspect_slope():
@@ -206,7 +212,13 @@ async def generate(boundary_file:UploadFile|None=File(None),boundary_code:str|No
         key="prepared/provinces/v1/"+province_id+".geojson"
         try:
             obj=client().get_object(Bucket=BUCKET,Key=key)
+            if obj.get("ContentLength",0)>50*1024*1024:
+                raise HTTPException(413,"Prepared province geometry is too large for browser rendering. A tiled or optimized dataset is required.")
             prepared=json.loads(obj["Body"].read())
+            if not prepared.get("features"):
+                raise HTTPException(422,"No slope polygons found for this province in the current source dataset. Upload nationwide slope coverage before generating this map.")
+        except HTTPException:
+            raise
         except client().exceptions.NoSuchKey:
             raise HTTPException(503,"This province has not yet been preprocessed. Nationwide preparation is required.")
         except Exception as exc:
