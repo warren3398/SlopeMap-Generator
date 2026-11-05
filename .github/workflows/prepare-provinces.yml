@@ -3,13 +3,17 @@ on:
   workflow_dispatch:
     inputs:
       start:
-        description: "First province FID (0-based)"
+        description: "First province position (0-based)"
         required: true
         default: "0"
       limit:
         description: "Number of provinces in this batch (use 1 for initial test)"
         required: true
         default: "1"
+      overwrite:
+        description: "Replace existing prepared files (required after geometry fix)"
+        type: boolean
+        default: false
 jobs:
   preprocess:
     runs-on: ubuntu-latest
@@ -32,4 +36,4 @@ jobs:
       - name: Install GIS dependencies
         run: pip install -r requirements.txt
       - name: Preprocess and upload
-        run: python -m scripts.prepare_provinces --start "${{ inputs.start }}" --limit "${{ inputs.limit }}"
+        run: python -m scripts.prepare_provinces --start "${{ inputs.start }}" --limit "${{ inputs.limit }}" ${{ inputs.overwrite && '--overwrite' || '' }}
