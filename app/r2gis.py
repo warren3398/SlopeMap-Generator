@@ -1,4 +1,4 @@
-import os, json, tempfile, zipfile, threading
+import os, json, tempfile, zipfile, threading, sqlite3
 from pathlib import Path
 from functools import lru_cache
 import boto3
@@ -207,17 +207,30 @@ async def generate(boundary_file:UploadFile|None=File(None),boundary_code:str|No
     to_area=Transformer.from_crs(4326,6933,always_xy=True).transform
     boundary_source=transform(to_source,boundary)
     bounds=boundary_source.bounds
-    feats=[];stats={};offset=0;batch_size=75
+    feats=[];stats={};batch_size=60
     province_view=bool(boundary_code and boundary_code.startswith("province:"))
-    # Hard limit protects free-tier memory and the browser from excessively large GeoJSON.
     vertex_budget=0
-    while True:
+    # Query GeoPackage RTree once. Repeated bbox + skip_features scans were
+    # re-running the same spatial search on every batch (very slow for provinces).
+    with sqlite3.connect(str(source)) as db:
+        row=db.execute("SELECT table_name,column_name FROM gpkg_geometry_columns LIMIT 1").fetchone()
+        if not row:raise HTTPException(422,"Slope GeoPackage has no geometry layer")
+        table_name,geom_name=row
+        rtree_name="rtree_"+table_name+"_"+geom_name
+        exists=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(rtree_name,)).fetchone()
+        if not exists:
+            raise HTTPException(422,"Slope GeoPackage has no spatial index. Re-export the slope dataset with a GeoPackage RTree spatial index for province-level generation.")
+        safe_name='"'+rtree_name.replace('"','""')+'"'
+        candidates=[r[0] for r in db.execute(
+            "SELECT id FROM "+safe_name+" WHERE minx<=? AND maxx>=? AND miny<=? AND maxy>=?",
+            (bounds[2],bounds[0],bounds[3],bounds[1]))]
+    if len(candidates)>100000:
+        raise HTTPException(413,"This province contains too many slope features for synchronous generation.")
+    for i in range(0,len(candidates),batch_size):
         try:
-            batch=pyogrio.read_dataframe(source,bbox=bounds,columns=[field],skip_features=offset,max_features=batch_size)
+            batch=pyogrio.read_dataframe(source,fids=candidates[i:i+batch_size],columns=[field])
         except Exception as exc:
-            raise HTTPException(422,"Cannot read slope GeoPackage: "+type(exc).__name__)
-        if batch.empty:break
-        count=len(batch)
+            raise HTTPException(422,"Cannot read indexed slope features: "+type(exc).__name__)
         for _,r in batch.iterrows():
             g=valid_poly(r.geometry)
             if g is None or g.is_empty or not g.intersects(boundary_source):continue
@@ -242,9 +255,7 @@ async def generate(boundary_file:UploadFile|None=File(None),boundary_code:str|No
             if vertex_budget>45_000_000:
                 raise HTTPException(413,"The selected area exceeds the online map geometry limit even after optimization. Please select a smaller area.")
             feats.append({"type":"Feature","properties":{"slope_class":cls,"area_ha":round(area,3)},"geometry":geometry})
-        offset+=count
         del batch
-        if count<batch_size:break
     return {"type":"FeatureCollection","features":feats,"statistics":[{"slope_class":k,"area_ha":round(v,3)} for k,v in sorted(stats.items())],"total_classified_ha":round(sum(stats.values()),3),"geometry_generalized":province_view}
 
 @router.post("/download/shapefile")
