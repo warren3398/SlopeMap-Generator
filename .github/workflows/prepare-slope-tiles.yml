@@ -1,0 +1,35 @@
+name: Prepare slope raster tiles (pilot)
+on:
+  workflow_dispatch:
+    inputs:
+      province_fid:
+        description: "Actual province GeoPackage FID"
+        required: true
+        default: "66"
+      min_zoom:
+        description: "Minimum zoom"
+        required: true
+        default: "7"
+      max_zoom:
+        description: "Maximum zoom (pilot 11)"
+        required: true
+        default: "11"
+jobs:
+  tiles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install Pillow>=10,<12
+      - name: Prepare and upload raster tiles
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: python -u -m scripts.prepare_slope_tiles --province-fid "${{ inputs.province_fid }}" --min-zoom "${{ inputs.min_zoom }}" --max-zoom "${{ inputs.max_zoom }}"
