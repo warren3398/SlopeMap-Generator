@@ -94,7 +94,7 @@ def main():
                         out=io.BytesIO();image.save(out,format="PNG",optimize=True)
                         r2.put_object(Bucket=BUCKET,Key=f"{prefix}{z}/{x}/{y}.png",Body=out.getvalue(),ContentType="image/png")
                     if count%50==0:print("TILES",count,"zoom",z,flush=True)
-    metadata={"province_fid":args.province_fid,"min_zoom":args.min_zoom,"max_zoom":args.max_zoom,
+    # Reuse full-resolution statistics from the existing province preparation.\n    try:\n        prepared=json.loads(r2.get_object(Bucket=BUCKET,Key=f"prepared/provinces/v1/{args.province_fid}.geojson")["Body"].read())\n        statistics=prepared.get("statistics",[])\n        total_area=prepared.get("total_classified_ha",0)\n    except Exception:\n        statistics=[];total_area=0\n    metadata={"statistics":statistics,"total_classified_ha":total_area,"province_fid":args.province_fid,"min_zoom":args.min_zoom,"max_zoom":args.max_zoom,
               "bounds_3857":list(boundary.bounds),"tiles_checked":count,"rendering":"original-unsimplified"}
     r2.put_object(Bucket=BUCKET,Key=prefix+"metadata.json",Body=json.dumps(metadata).encode(),ContentType="application/json")
     print("READY",json.dumps(metadata),flush=True)
