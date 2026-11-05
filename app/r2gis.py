@@ -247,29 +247,29 @@ async def generate(boundary_file:UploadFile|None=File(None),boundary_code:str|No
                 g=from_wkb(bytes(blob)[8+envelope_bytes:])
                 r={field:cls_value}
 
-            g=valid_poly(g)
-            if g is None or g.is_empty or not g.intersects(boundary_source):continue
-            cut=valid_poly(g.intersection(boundary_source))
-            if cut is None or cut.is_empty:continue
-            if cut.geom_type=="GeometryCollection":
-                pieces=[p for p in cut.geoms if p.geom_type=="Polygon"]
-                pieces += [p for m in cut.geoms if p.geom_type=="MultiPolygon" for p in m.geoms]
-                if not pieces:continue
-                cut=MultiPolygon(pieces)
-            if cut.geom_type not in ("Polygon","MultiPolygon"):continue
-            cut=transform(to_wgs,cut)
-            area=float(transform(to_area,cut).area)/10000
-            cls=str(r[field]);stats[cls]=stats.get(cls,0)+area
-            # Keep statistics from full-resolution geometry; generalize province display
-            # geometry to keep GeoJSON usable on the free server and in Leaflet.
-            display=cut.simplify(0.002,preserve_topology=True) if province_view else cut
-            if province_view and len(str(mapping(display)))>250000:
-                display=cut.simplify(0.006,preserve_topology=True)
-            geometry=mapping(display)
-            vertex_budget+=len(str(geometry))
-            if vertex_budget>45_000_000:
-                raise HTTPException(413,"The selected area exceeds the online map geometry limit even after optimization. Please select a smaller area.")
-            feats.append({"type":"Feature","properties":{"slope_class":cls,"area_ha":round(area,3)},"geometry":geometry})
+                g=valid_poly(g)
+                if g is None or g.is_empty or not g.intersects(boundary_source):continue
+                cut=valid_poly(g.intersection(boundary_source))
+                if cut is None or cut.is_empty:continue
+                if cut.geom_type=="GeometryCollection":
+                    pieces=[p for p in cut.geoms if p.geom_type=="Polygon"]
+                    pieces += [p for m in cut.geoms if p.geom_type=="MultiPolygon" for p in m.geoms]
+                    if not pieces:continue
+                    cut=MultiPolygon(pieces)
+                if cut.geom_type not in ("Polygon","MultiPolygon"):continue
+                cut=transform(to_wgs,cut)
+                area=float(transform(to_area,cut).area)/10000
+                cls=str(r[field]);stats[cls]=stats.get(cls,0)+area
+                # Keep statistics from full-resolution geometry; generalize province display
+                # geometry to keep GeoJSON usable on the free server and in Leaflet.
+                display=cut.simplify(0.002,preserve_topology=True) if province_view else cut
+                if province_view and len(str(mapping(display)))>250000:
+                    display=cut.simplify(0.006,preserve_topology=True)
+                geometry=mapping(display)
+                vertex_budget+=len(str(geometry))
+                if vertex_budget>45_000_000:
+                    raise HTTPException(413,"The selected area exceeds the online map geometry limit even after optimization. Please select a smaller area.")
+                feats.append({"type":"Feature","properties":{"slope_class":cls,"area_ha":round(area,3)},"geometry":geometry})
     finally:
         db.close()
     return {"type":"FeatureCollection","features":feats,"statistics":[{"slope_class":k,"area_ha":round(v,3)} for k,v in sorted(stats.items())],"total_classified_ha":round(sum(stats.values()),3),"geometry_generalized":province_view}
