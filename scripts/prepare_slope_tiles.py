@@ -4,7 +4,7 @@ Pilot: python -m scripts.prepare_slope_tiles --province-fid 66 --min-zoom 7 --ma
 Tiles are drawn from UNSIMPLIFIED source polygons. They never change area statistics.
 """
 import argparse, io, json, math, sqlite3
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageChops
 from shapely import from_wkb
 from shapely.geometry import box
 from shapely.ops import transform
@@ -37,8 +37,14 @@ def paint(draw,geom,extent,color):
     def points(ring):
         return [((px-x0)*256/(x1-x0),(y1-py)*256/(y1-y0)) for px,py in ring.coords]
     for p in polygons:
-        draw.polygon(points(p.exterior),fill=color)
-        for hole in p.interiors:draw.polygon(points(hole),fill=(0,0,0,0))
+        # A polygon hole must not erase an earlier, separately drawn class.
+        # Draw the polygon into its own mask, then composite only its filled pixels.
+        mask=Image.new("L",(256,256),0)
+        md=ImageDraw.Draw(mask)
+        md.polygon(points(p.exterior),fill=255)
+        for hole in p.interiors:md.polygon(points(hole),fill=0)
+        overlay=Image.new("RGBA",(256,256),color)
+        draw._image.paste(overlay,(0,0),mask)
 def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--province-fid",type=int,required=True)
@@ -57,6 +63,9 @@ def main():
     r2=client()
     prefix=f"tiles/provinces/v1/{args.province_fid}/"
     count=0
+    pixels_total=0
+    pixels_colored=0
+    tiles_with_gaps=0
     with sqlite3.connect(str(slope)) as db:
         table,geom=db.execute("SELECT table_name,column_name FROM gpkg_geometry_columns LIMIT 1").fetchone()
         cols=db.execute('PRAGMA table_info("'+table.replace('"','""')+'")').fetchall()
@@ -91,6 +100,13 @@ def main():
                         if clipped.is_empty:continue
                         paint(draw,clipped,tile.bounds,PALETTE[cls]);painted+=1
                     if painted:
+                        # Report transparency; it may be true NoData, not a rendering bug.
+                        # Count transparency only in the tile image (not satellite basemap).
+                        alpha=image.getchannel("A")
+                        colored=sum(alpha.histogram()[1:])
+                        pixels_total+=256*256
+                        pixels_colored+=colored
+                        if colored<256*256:tiles_with_gaps+=1
                         out=io.BytesIO();image.save(out,format="PNG",optimize=True)
                         r2.put_object(Bucket=BUCKET,Key=f"{prefix}{z}/{x}/{y}.png",Body=out.getvalue(),ContentType="image/png")
                     if count%50==0:print("TILES",count,"zoom",z,flush=True)
@@ -101,7 +117,8 @@ def main():
         total_area=prepared.get("total_classified_ha",0)
     except Exception:
         statistics=[];total_area=0
-    metadata={"statistics":statistics,"total_classified_ha":total_area,"province_fid":args.province_fid,"min_zoom":args.min_zoom,"max_zoom":args.max_zoom,
+    print("PIXEL_COVERAGE",json.dumps({"tiles_with_transparency":tiles_with_gaps,"colored_pixel_fraction":round(pixels_colored/max(pixels_total,1),4)}),flush=True)
+    metadata={"tiles_with_transparency":tiles_with_gaps,"colored_pixel_fraction":round(pixels_colored/max(pixels_total,1),4),"statistics":statistics,"total_classified_ha":total_area,"province_fid":args.province_fid,"min_zoom":args.min_zoom,"max_zoom":args.max_zoom,
               "bounds_3857":list(boundary.bounds),"tiles_checked":count,"rendering":"original-unsimplified"}
     r2.put_object(Bucket=BUCKET,Key=prefix+"metadata.json",Body=json.dumps(metadata).encode(),ContentType="application/json")
     print("READY",json.dumps(metadata),flush=True)
