@@ -203,6 +203,37 @@ def boundaries(level:str,parent_code:str|None=None):
         raise HTTPException(422,"Missing "+col+" in "+level+" dataset")
     return sorted([{"code":level+":"+str(fid),"name":str(r[col])} for fid,r in df.iterrows() if r[col] is not None],key=lambda x:x["name"])
 
+@router.get("/gis/province-tiles/{province_id}/metadata")
+def province_tile_metadata(province_id:int):
+    if province_id<1:raise HTTPException(400,"Invalid province FID")
+    key=f"tiles/provinces/v1/{province_id}/metadata.json"
+    try:
+        obj=client().get_object(Bucket=BUCKET,Key=key)
+        return json.loads(obj["Body"].read())
+    except Exception as exc:
+        if getattr(exc,"response",{}).get("Error",{}).get("Code") in ("NoSuchKey","404","NotFound"):
+            raise HTTPException(404,"Raster tiles not yet prepared for this province")
+        raise HTTPException(503,"Cannot load tile metadata")
+
+@router.get("/gis/province-tiles/{province_id}/{z}/{x}/{y}.png")
+def province_tile(province_id:int,z:int,x:int,y:int):
+    if province_id<1 or not 0<=z<=14 or not 0<=x<2**z or not 0<=y<2**z:
+        raise HTTPException(400,"Invalid tile coordinate")
+    key=f"tiles/provinces/v1/{province_id}/{z}/{x}/{y}.png"
+    try:
+        obj=client().get_object(Bucket=BUCKET,Key=key)
+    except Exception as exc:
+        if getattr(exc,"response",{}).get("Error",{}).get("Code") in ("NoSuchKey","404","NotFound"):
+            raise HTTPException(404,"Tile not found")
+        raise HTTPException(503,"Tile storage unavailable")
+    def chunks():
+        try:
+            for chunk in obj["Body"].iter_chunks(chunk_size=65536):
+                if chunk:yield chunk
+        finally:obj["Body"].close()
+    return StreamingResponse(chunks(),media_type="image/png",
+                             headers={"Cache-Control":"public,max-age=86400"})
+
 @router.post("/generate")
 async def generate(boundary_file:UploadFile|None=File(None),boundary_code:str|None=Form(None)):
     if bool(boundary_file)==bool(boundary_code):raise HTTPException(400,"Upload parcel or select administrative boundary")
