@@ -186,6 +186,20 @@ def boundaries(level:str,parent_code:str|None=None):
 @router.post("/generate")
 async def generate(boundary_file:UploadFile|None=File(None),boundary_code:str|None=Form(None)):
     if bool(boundary_file)==bool(boundary_code):raise HTTPException(400,"Upload parcel or select administrative boundary")
+    if boundary_code and boundary_code.startswith("province:"):
+        province_id=boundary_code.split(":",1)[1]
+        if not province_id.isdigit():raise HTTPException(400,"Invalid province identifier")
+        key="prepared/provinces/v1/"+province_id+".geojson"
+        try:
+            obj=client().get_object(Bucket=BUCKET,Key=key)
+            prepared=json.loads(obj["Body"].read())
+        except client().exceptions.NoSuchKey:
+            raise HTTPException(503,"This province has not yet been preprocessed. Nationwide preparation is required.")
+        except Exception as exc:
+            if getattr(exc,"response",{}).get("Error",{}).get("Code") in ("NoSuchKey","404"):
+                raise HTTPException(503,"This province has not yet been preprocessed. Nationwide preparation is required.")
+            raise HTTPException(503,"Cannot load prepared province: "+type(exc).__name__)
+        return prepared
     if boundary_file:
         parcels=read_parcel(await boundary_file.read(),boundary_file.filename or "")
         boundary=unary_union([valid_poly(g) for g in parcels.geometry])
