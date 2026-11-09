@@ -3,3 +3,5 @@ One-time trigger: generate province FID 66 (Abra) using the existing slope sourc
 Regenerate Abra after restoring the administrative boundary outline in the JPEG layout.
 
 Regenerate Abra after fixing province display name to use ADM2ALTEN fallback.
+
+Retry after fixing boundary geometry plot variable.
