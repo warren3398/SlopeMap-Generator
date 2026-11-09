@@ -191,22 +191,34 @@ def boundaries(level:str,parent_code:str|None=None):
         return sorted([{"code":"region:"+str(fid),"name":str(row[col])} for fid,row in df.iterrows() if row[col] is not None],key=lambda x:x["name"])
     source=local_file(level)
     info=pyogrio.read_info(source)
+    if level=="province" and parent_code and parent_code.startswith("region:"):
+        # Dropdown query uses attribute-only GeoPackage reads: no large province geometries.
+        region_code=parent_code.partition(":")[2]
+        fields=list(info["fields"])
+        name_col=name_column(fields,"province")
+        region_col=next((c for c in ("ADM1_PCODE","REGION_CODE","REG_CODE","ADM1_CODE") if c in fields),None)
+        if region_col is None:raise HTTPException(422,"Province dataset has no region-code field")
+        df=pyogrio.read_dataframe(source,columns=[name_col,region_col],read_geometry=False,fid_as_index=True)
+        def same_region(v):
+            v=str(v or "").strip()
+            if v==region_code:return True
+            # Support PSGC legacy (e.g. 010000000) and newer numeric forms.
+            a=v.lstrip("0") or "0"
+            b=region_code.lstrip("0") or "0"
+            return a==b or (len(v)>=2 and len(region_code)>=2 and v[:2]==region_code[:2])
+        df=df[df[region_col].map(same_region)]
+        return sorted([{"code":"province:"+str(fid),"name":str(row[name_col])} for fid,row in df.iterrows() if row[name_col] is not None],key=lambda x:x["name"])
     if parent_code:
         geom=selected_geometry(parent_code)
         bbox=tuple(gpd.GeoSeries([geom],crs=4326).to_crs(info["crs"]).total_bounds)
         df=pyogrio.read_dataframe(source,bbox=bbox,fid_as_index=True)
         if not df.empty:
             df=df.to_crs(4326)
-            # Require representative point inside the parent, avoiding neighbors along shared borders.
             df=df[df.geometry.representative_point().within(geom)]
     else:
-        # Nationwide province GeoPackage has very large geometries. Dropdowns need names and FIDs only.
-        # Avoid loading ~200 MB of polygon geometry into the Render free instance.
-        name_field={"province":"ADM2_EN","municipality":"NAME_2","barangay":"NAME_3"}[level]
+        name_field=name_column(list(info["fields"]),level)
         df=pyogrio.read_dataframe(source,columns=[name_field],read_geometry=False,fid_as_index=True)
-    col={"province":"ADM2_EN","municipality":"NAME_2","barangay":"NAME_3"}[level]
-    if col not in df.columns:
-        raise HTTPException(422,"Missing "+col+" in "+level+" dataset")
+    col=name_column(list(df.columns),level)
     return sorted([{"code":level+":"+str(fid),"name":str(r[col])} for fid,r in df.iterrows() if r[col] is not None],key=lambda x:x["name"])
 
 @router.get("/gis/province-tiles/{province_id}/metadata")
