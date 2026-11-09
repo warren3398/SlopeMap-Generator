@@ -2,7 +2,7 @@
 Usage: python -m scripts.build_slope_exports --level province --fid 66
 R2 keys: exports/slope/<level>/<fid>/slope.jpg and slope.zip
 """
-import argparse, io, json, re, tempfile, zipfile
+import argparse, io, json, re, tempfile, zipfile, sqlite3
 from pathlib import Path
 import geopandas as gpd
 import pyogrio
@@ -15,6 +15,19 @@ from app.r2gis import local_file, client, BUCKET, valid_poly, slope_column
 COLORS={"A":"#418a41","B":"#89b340","C":"#dde340","D":"#ffe240","E":"#ffa340","F":"#ff0000"}
 RANGES={"A":"0–3%","B":"3–8%","C":"8–18%","D":"18–30%","E":"30–50%","F":">50%"}
 NAMES={"A":"Level to nearly level","B":"Gently sloping","C":"Sloping","D":"Moderately steep","E":"Steep","F":"Very steep"}
+def dataset_fids(path):
+    """Read real GeoPackage primary keys; FIDs may start at 1 or contain gaps."""
+    with sqlite3.connect(str(path)) as db:
+        row=db.execute("SELECT table_name FROM gpkg_geometry_columns LIMIT 1").fetchone()
+        if not row:raise ValueError("No geometry layer found in GeoPackage")
+        table=row[0]
+        quoted='"'+table.replace('"','""')+'"'
+        columns=db.execute("PRAGMA table_info("+quoted+")").fetchall()
+        pk=next((r[1] for r in columns if r[5]),None)
+        if pk is None:raise ValueError("GeoPackage geometry layer lacks a primary key")
+        quoted_pk='"'+pk.replace('"','""')+'"'
+        return [int(row[0]) for row in db.execute("SELECT "+quoted_pk+" FROM "+quoted+" ORDER BY "+quoted_pk)]
+
 def build_one(level, fid, overwrite=False):
     class Args: pass
     a=Args(); a.level=level; a.fid=fid; a.overwrite=overwrite
@@ -118,12 +131,12 @@ def main():
     if a.start<0 or a.limit<1 or a.limit>200:raise SystemExit("Invalid batch range (limit 1–200)")
     # FID order is the exact row index used by /boundaries dropdown.
     path=local_file(a.level)
-    info=pyogrio.read_info(path)
-    count=int(info["features"])
+    fids=dataset_fids(path)
+    count=len(fids)
     end=min(a.start+a.limit,count)
-    print(f"BATCH {a.level}: positions {a.start}..{end-1} of {count}",flush=True)
+    print(f"BATCH {a.level}: positions {a.start}..{end-1} of {count}; actual FIDs {fids[a.start:end]}",flush=True)
     failures=[]
-    for fid in range(a.start,end):
+    for fid in fids[a.start:end]:
         print(f"PROCESS {a.level}/{fid}",flush=True)
         try:build_one(a.level,fid,a.overwrite)
         except Exception as exc:
