@@ -1,113 +1,48 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SlopeMap Generator</title><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>body{margin:0;font:15px system-ui;color:#173c30;background:#f4f7f5}header{padding:17px;background:#18533d;color:white;font-weight:700;font-size:20px}.layout{display:grid;grid-template-columns:330px 1fr;height:calc(100vh - 62px)}aside{padding:18px;overflow:auto}#map{height:100%}input,select,button{box-sizing:border-box;width:100%;padding:11px;margin:8px 0 16px;border:1px solid #cbd8d0;border-radius:8px}button{background:#18694d;color:white;cursor:pointer;font-weight:700}button:disabled{opacity:.65;cursor:wait}.progress-panel{margin:0 0 16px;padding:12px;border:1px solid #cbd8d0;border-radius:9px;background:white}.progress-track{height:10px;background:#e2ebe5;border-radius:9px;overflow:hidden;margin:10px 0}.progress-indeterminate{height:100%;width:38%;background:#21815a;border-radius:9px;animation:progress-slide 1.4s ease-in-out infinite alternate}.progress-track.complete .progress-indeterminate{animation:none;width:100%}@keyframes progress-slide{from{transform:translateX(0)}to{transform:translateX(165%)}}.progress-meta{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:#64776d}.progress-panel strong{font-size:14px}label{font-weight:600}small{color:#64776d}table{width:100%;border-collapse:collapse}td,th{padding:8px;border-bottom:1px solid #ddd;text-align:left}@media(max-width:720px){.layout{display:block;height:auto}#map{height:55vh}}</style></head><body><header>SlopeMap Generator</header><div class="layout"><aside><h3>Generate slope map</h3><label>Boundary source</label><select id="mode"><option value="upload">Upload parcel boundary</option><option value="admin">Administrative boundary</option></select><div id="upload"><label>Parcel file (Shapefile ZIP, GeoJSON, GPKG, KML, KMZ)</label><input id="file" type="file" accept=".zip,.geojson,.json,.gpkg,.kml,.kmz"></div><div id="admin" hidden><label>Province</label><select id="province"></select><label>Municipality / City</label><select id="municipality"></select><label>Barangay</label><select id="barangay"></select><small>Choose any available level.</small></div><button id="run">Generate slope map</button><div id="progress-panel" class="progress-panel" hidden role="status" aria-live="polite"><strong id="progress-stage">Preparing…</strong><div id="progress-track" class="progress-track"><div class="progress-indeterminate"></div></div><div class="progress-meta"><span id="progress-detail">Processing</span><span id="progress-elapsed">0s elapsed</span></div></div><p id="status"><small>Nationwide GIS data stored privately in Cloudflare R2. Upload a parcel to begin.</small></p><div id="results" hidden><h3>Slope statistics</h3><div id="stats"></div><div id="legend" style="margin-top:12px;font-size:12px"><strong>Slope classification</strong><div id="legendrows"></div></div><button id="download">Download GeoJSON</button><button id="download-jpeg">Download Layout JPEG</button><button id="download-shp">Download Shapefile (ZIP)</button></div></aside><div id="map"></div></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script><script>
-const $=id=>document.getElementById(id),map=L.map('map').setView([12.5,122.5],6);L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',maxZoom:19,crossOrigin:true}).addTo(map);L.control.scale({imperial:false,position:'bottomleft'}).addTo(map);let layer,result;const levels=['province','municipality','barangay'];$('mode').onchange=()=>{$('upload').hidden=$('mode').value!=='upload';$('admin').hidden=$('mode').value!=='admin';if($('mode').value==='admin')load('province')};async function load(level,parent){const s=$(level);s.innerHTML='<option value="">Loading '+level+'…</option>';if(parent===false){s.innerHTML='<option value="">— Select —</option>';return;}try{const r=await fetch('/boundaries?level='+level+(parent?'&parent_code='+encodeURIComponent(parent):''));if(!r.ok){const err=await r.json().catch(()=>({}));throw Error((err.detail||'R2 boundary dataset unavailable')+' ('+level+')')}const options=await r.json();s.innerHTML='<option value="">— Select —</option>';for(const x of options)s.add(new Option(x.name,x.code));if(!options.length)$('status').textContent='No '+level+' boundaries found under selected area'}catch(e){s.innerHTML='<option value="">Unable to load — retry</option>';$('status').textContent='Boundary loading error: '+e.message}}levels.forEach((l,i)=>$(l).onchange=()=>{for(let j=i+1;j<levels.length;j++)load(levels[j],false);if(i+1<levels.length&&$(l).value){$('status').textContent='Loading '+levels[i+1]+'…';load(levels[i+1],$(l).value).then(()=>{if($('status').textContent.startsWith('Loading '))$('status').textContent=''})}});for(const [k,c] of Object.entries({A:'#418a41',B:'#89b340',C:'#dde340',D:'#ffe240',E:'#ffa340',F:'#ff0000'})){const row=document.createElement('div');row.style.cssText='display:flex;align-items:center;gap:7px;margin:5px 0';const sw=document.createElement('span');sw.style.cssText='display:inline-block;width:18px;height:12px;border:1px solid #777;background:'+c;row.append(sw,document.createTextNode(k+' — '+({A:'0–3%',B:'3–8%',C:'8–18%',D:'18–30%',E:'30–50%',F:'>50%'}[k])));$('legendrows').append(row)}load('province');let progressTimer=null,progressStart=0;function progressStage(stage,detail){$('progress-panel').hidden=false;$('progress-stage').textContent=stage;$('progress-detail').textContent=detail;$('progress-track').classList.remove('complete')}function progressBegin(){clearInterval(progressTimer);progressStart=Date.now();$('progress-elapsed').textContent='0s elapsed';progressStage('Generating slope map…','Sending boundary and processing GIS data');progressTimer=setInterval(()=>{$('progress-elapsed').textContent=Math.floor((Date.now()-progressStart)/1000)+'s elapsed'},1000)}function progressEnd(success,message){clearInterval(progressTimer);progressTimer=null;$('progress-stage').textContent=success?'Generation complete':'Generation failed';$('progress-detail').textContent=message;$('progress-track').classList.toggle('complete',success)}$('run').onclick=async()=>{const form=new FormData();if($('mode').value==='upload'){if(!$('file').files.length)return alert('Select parcel file');form.append('boundary_file',$('file').files[0])}else{const code=levels.map(x=>$(x).value).filter(Boolean).pop();if(!code)return alert('Select boundary');form.append('boundary_code',code)}$('results').hidden=true;$('status').textContent='Generating clipped slope map…';$('run').disabled=true;progressBegin();try{if($('mode').value==='admin'){const selected=levels.map(x=>$(x).value).filter(Boolean).pop();if(selected&&selected.startsWith('province:')){const fid=selected.split(':')[1];const metaResponse=await fetch('/gis/province-tiles/'+fid+'/metadata');if(metaResponse.ok){const meta=await metaResponse.json();if(layer)map.removeLayer(layer);layer=L.tileLayer('/gis/province-tiles/'+fid+'/{z}/{x}/{y}.png',{minZoom:meta.min_zoom,maxNativeZoom:meta.max_zoom,maxZoom:19,opacity:.82,errorTileUrl:'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='}).addTo(map);const merc=(x,y)=>[Math.atan(Math.sinh(Math.PI*y/20037508.342789244))*180/Math.PI,x*180/20037508.342789244];const b=meta.bounds_3857;map.fitBounds([merc(b[0],b[1]),merc(b[2],b[3])]);const table=document.createElement('table');table.innerHTML='<tr><th>Class</th><th>Area (ha)</th></tr>';for(const item of meta.statistics||[]){const tr=table.insertRow();tr.insertCell().textContent=item.slope_class;tr.insertCell().textContent=Number(item.area_ha).toFixed(3)}$('stats').replaceChildren(table);$('results').hidden=false;result=null;for(const id of ['download','download-jpeg','download-shp'])$(id).disabled=true;$('status').textContent='Raster tile slope map · '+Number(meta.total_classified_ha||0).toFixed(3)+' ha. Vector downloads are unavailable in tile mode.';progressEnd(true,'Raster map tiles and statistics are ready');return}}}for(const id of ['download','download-jpeg','download-shp'])$(id).disabled=false;const r=await fetch('/generate',{method:'POST',body:form});const raw=await r.text();let d;try{d=JSON.parse(raw)}catch(_){throw Error(r.status===502||r.status===503||r.status===504?'GIS server interrupted the request ('+r.status+'). It may have restarted due to memory limits. Try a smaller boundary.':'Server returned an invalid or empty response (HTTP '+r.status+'). Please retry or choose a smaller area.')}if(!r.ok)throw Error(d.detail||'Generation failed (HTTP '+r.status+')');progressStage('Preparing map display…','Rendering slope polygons and computing summary');result=d;if(layer)map.removeLayer(layer);const palette={A:'#418a41',B:'#89b340',C:'#dde340',D:'#ffe240',E:'#ffa340',F:'#ff0000'};const descriptions={A:'0–3% · Level to gently sloping',B:'3–8% · Gently sloping to undulating',C:'8–18% · Undulating to rolling',D:'18–30% · Rolling to moderately steep',E:'30–50% · Steep',F:'>50% · Very steep'};layer=L.geoJSON(d,{style:f=>({color:'#44584d',weight:.5,fillOpacity:classKey(f.properties.slope_class)?.length===1&&palette[classKey(f.properties.slope_class)]?.length?0.82:0,fillColor:palette[classKey(f.properties.slope_class)]||'#999999'})}).addTo(map);if(layer.getLayers().length)map.fitBounds(layer.getBounds());const table=document.createElement('table');table.innerHTML='<tr><th>Class</th><th>Area (ha)</th></tr>';for(const s of [...d.statistics].sort((a,b)=>('ABCDEF'.indexOf(classKey(a.slope_class))<0?99:'ABCDEF'.indexOf(classKey(a.slope_class)))-('ABCDEF'.indexOf(classKey(b.slope_class))<0?99:'ABCDEF'.indexOf(classKey(b.slope_class))))){const tr=table.insertRow();const k=classKey(s.slope_class);tr.insertCell().textContent=(k&&palette[k]?k+' — '+descriptions[k]:'No data / Unclassified');tr.insertCell().textContent=s.area_ha.toFixed(3)}$('stats').replaceChildren(table);$('results').hidden=false;$('status').textContent='Total classified area: '+d.total_classified_ha.toFixed(3)+' ha';progressEnd(true,'Map and statistics are ready')}catch(e){$('status').textContent='Error: '+e.message;progressEnd(false,e.message)}finally{$('run').disabled=false}};$('download').onclick=()=>{if(!result)return;const url=URL.createObjectURL(new Blob([JSON.stringify(result)],{type:'application/geo+json'})),a=document.createElement('a');a.href=url;a.download='slope-clipped.geojson';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
-
-const classKey=v=>{let x=String(v??'').trim().toUpperCase().replace(/[–—]/g,'-').replace(/%/g,'').replace(/\s+/g,'');if(/^[A-F]$/.test(x))return x;if(/^[1-6]$/.test(x))return 'ABCDEF'[Number(x)-1];if(x==='NAN'||x==='NULL'||x==='NONE'||x==='')return null;if(/^(?:>|>=|≥)\s*50|^50(?:\+|ANDABOVE|ANDOVER|ORABOVE|ORMORE|UP)/.test(x))return 'F';const m=x.match(/(\d+(?:\.\d+)?)(?:-|TO)(\d+(?:\.\d+)?)/);if(m){const a=Number(m[1]),b=Number(m[2]);return ({'0-3':'A','3-8':'B','8-18':'C','18-30':'D','30-50':'E'})[a+'-'+b]||x}return x};
-const getPlace=()=>{if($('mode').value==='upload')return ['Uploaded Parcel','Parcel Boundary'];const selected=levels.map(id=>$(id).selectedOptions[0]?.textContent).filter(x=>x&&x!=='— Select —');return [selected[selected.length-1]||'Selected Area',selected.slice(0,-1).reverse().join(', ')||'Philippines']};
-const saveBlob=(blob,name)=>{const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),5000)};
-const layoutCanvas=async()=>{
- if(!result)throw Error('Generate a slope map first');
- 
- $('status').textContent='Preparing printable slope map…';
-
- // Render a dedicated print-size map, not the browser's screen-shaped map.
- // This ensures that fitBounds uses exactly the printed map frame's aspect ratio.
- const printW=2440,printH=2060;
- const host=document.createElement('div');
- host.style.cssText='position:fixed;left:-20000px;top:0;width:'+printW+'px;height:'+printH+'px;pointer-events:none;';
- document.body.append(host);
- const exportMap=L.map(host,{zoomControl:false,attributionControl:false,fadeAnimation:false,zoomAnimation:false,zoomSnap:0.1});
- const imagery=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,crossOrigin:true});
- imagery.addTo(exportMap);
- const snapshot=document.createElement('canvas');snapshot.width=printW;snapshot.height=printH;
- try{
-   exportMap.invalidateSize();
-   const bounds=layer&&layer.getLayers().length?layer.getBounds():map.getBounds();
-   exportMap.fitBounds(bounds,{padding:[18,18],animate:false,maxZoom:16});
-   // Compute the actual colored-feature extent, then fit within the print viewport.
-   // Leaflet fitBounds handles aspect ratio and prevents clipping at all map scales.
-   const fitted=L.latLngBounds([]);
-   for(const feature of result.features||[]){
-     const cls=classKey(feature.properties?.slope_class);
-     if(!cls||!'ABCDEF'.includes(cls))continue;
-     const geom=feature.geometry||{};
-     const polygons=geom.type==='Polygon'?[geom.coordinates]:geom.type==='MultiPolygon'?geom.coordinates:[];
-     for(const poly of polygons)for(const ring of poly)for(const coord of ring){
-       if(Number.isFinite(coord[0])&&Number.isFinite(coord[1]))fitted.extend([coord[1],coord[0]]);
-     }
-   }
-   if(fitted.isValid())exportMap.fitBounds(fitted,{padding:[65,65],animate:false,maxZoom:16});
-   // Wait for all satellite tiles needed by this viewport, not a fixed 1.2 seconds.
-   await new Promise(resolve=>{
-     let finished=false;
-     const done=()=>{if(finished)return;finished=true;imagery.off('load',done);resolve()};
-     if(!imagery.isLoading())return done();
-     imagery.on('load',done);
-     setTimeout(done,7000);
-   });
-   await Promise.all(Array.from(host.querySelectorAll('.leaflet-tile-loaded')).map(img=>img.decode?.().catch(()=>{})||Promise.resolve()));
-   const sc=snapshot.getContext('2d');sc.fillStyle='#e4e8e3';sc.fillRect(0,0,printW,printH);
-   const mapRect=host.getBoundingClientRect();
-   for(const img of host.querySelectorAll('.leaflet-tile-loaded')){
-     const rect=img.getBoundingClientRect();
-     try{sc.drawImage(img,rect.left-mapRect.left,rect.top-mapRect.top,rect.width,rect.height)}catch(_){}
-   }
-   const palette={A:'#418a41',B:'#89b340',C:'#dde340',D:'#ffe240',E:'#ffa340',F:'#ff0000'};
-   for(const feature of result.features||[]){
-     const k=classKey(feature.properties?.slope_class);
-     if(!palette[k])continue;
-     const geom=feature.geometry||{},polys=geom.type==='Polygon'?[geom.coordinates]:geom.type==='MultiPolygon'?geom.coordinates:[];
-     sc.beginPath();
-     for(const poly of polys)for(const ring of poly){ring.forEach((pt,i)=>{const p=exportMap.latLngToContainerPoint([pt[1],pt[0]]);if(i===0)sc.moveTo(p.x,p.y);else sc.lineTo(p.x,p.y)});sc.closePath()}
-     sc.fillStyle=palette[k];sc.globalAlpha=.82;sc.fill('evenodd');sc.globalAlpha=1;
-   }
- }finally{exportMap.remove();host.remove()}
-
- const c=document.createElement('canvas');c.width=3600;c.height=2240;const x=c.getContext('2d');x.scale(2,2);
- x.fillStyle='white';x.fillRect(0,0,1800,1120);
- x.strokeStyle='#263c31';x.lineWidth=2;x.strokeRect(12,12,1776,1096);
- const mx=40,my=45,mw=1220,mh=1030;
- x.drawImage(snapshot,mx,my,mw,mh);
- x.strokeStyle='#1b2e26';x.lineWidth=3;x.strokeRect(mx,my,mw,mh);
- x.font='bold 38px Arial';x.textAlign='center';x.fillStyle='white';x.strokeStyle='#15231b';x.lineWidth=5;x.strokeText('N',1200,105);x.fillText('N',1200,105);
- x.beginPath();x.moveTo(1200,118);x.lineTo(1186,156);x.lineTo(1200,147);x.lineTo(1214,156);x.closePath();x.fillStyle='white';x.fill();x.stroke();
- const sx=1290,sw=475;let y=45;
- const bar=(title,h=45)=>{x.fillStyle='#075328';x.fillRect(sx,y,sw,h);x.fillStyle='white';x.font='bold 24px Arial';x.textAlign='center';x.fillText(title,sx+sw/2,y+h/2+9);y+=h};
- const box=(height)=>{x.strokeStyle='#24553a';x.lineWidth=2;x.strokeRect(sx,y,sw,height);x.fillStyle='#151515';x.textAlign='left'};
- bar('SLOPE MAP',75);
- const place=getPlace();x.fillStyle='white';x.fillRect(sx,y,sw,95);x.fillStyle='#111';x.font='bold 25px Arial';x.textAlign='center';x.fillText(place[0].slice(0,32),sx+sw/2,y+39);x.font='20px Arial';x.fillText(place[1].slice(0,40),sx+sw/2,y+72);box(95);y+=105;
- bar('Legend',39);x.fillStyle='#fff';x.fillRect(sx,y,sw,285);box(285);
- const labels=[['A','0–3%','Level to nearly level','#418a41'],['B','3–8%','Gently sloping','#89b340'],['C','8–18%','Sloping','#dde340'],['D','18–30%','Moderately steep','#ffe240'],['E','30–50%','Steep','#ffa340'],['F','>50%','Very steep','#ff0000']];
- x.textAlign='left';x.fillStyle='#111';x.font='bold 19px Arial';x.fillText('Slope Class (Percent)',sx+17,y+31);
- labels.forEach((r,i)=>{const yy=y+53+i*34;x.fillStyle=r[3];x.fillRect(sx+18,yy-17,30,23);x.fillStyle='#111';x.font='18px Arial';x.fillText(r[0],sx+64,yy+2);x.fillText(r[1],sx+108,yy+2);x.font='16px Arial';x.fillText(r[2],sx+226,yy+2)});
- y+=296;bar('Slope Class Summary',39);
- const sums={};for(const t of result.statistics||[]){const k=classKey(t.slope_class);if(k&&'ABCDEF'.includes(k)&&k.length===1)sums[k]=(sums[k]||0)+Number(t.area_ha)};
- const total=Object.values(sums).reduce((a,b)=>a+b,0);
- const ty=y,tableH=265,headerH=42,rowH=29;
- x.fillStyle='#fff';x.fillRect(sx,ty,sw,tableH);
- x.strokeStyle='#24553a';x.lineWidth=2;x.strokeRect(sx,ty,sw,tableH);
- const col1=sx+18,col2=sx+322,col3=sx+sw-18;
- x.fillStyle='#eef3ef';x.fillRect(sx+2,ty+2,sw-4,headerH);
- x.fillStyle='#111';x.font='bold 17px Arial';
- x.textAlign='left';x.fillText('Class',col1,ty+28);
- x.textAlign='right';x.fillText('Area (ha)',col2,ty+28);x.fillText('Area (%)',col3,ty+28);
- x.strokeStyle='#c7d4cb';x.lineWidth=1;
- for(let i=0;i<=7;i++){const lineY=ty+headerH+i*rowH;x.beginPath();x.moveTo(sx+2,lineY);x.lineTo(sx+sw-2,lineY);x.stroke()}
- const fmt=n=>Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
- labels.forEach((r,i)=>{
-   const yy=ty+headerH+i*rowH+20;
-   x.fillStyle='#111';x.font='17px Arial';
-   x.textAlign='left';x.fillText(r[0],col1,yy);
-   x.textAlign='right';x.fillText(fmt(sums[r[0]]||0),col2,yy);
-   x.fillText(total?fmt((sums[r[0]]||0)*100/total):'0.00',col3,yy);
- });
- const totalY=ty+headerH+6*rowH+21;
- x.fillStyle='#111';x.font='bold 17px Arial';x.textAlign='left';x.fillText('TOTAL',col1,totalY);
- x.textAlign='right';x.fillText(fmt(total),col2,totalY);x.fillText(total?'100.00':'0.00',col3,totalY);
- x.textAlign='left';y=ty+tableH+11;
- bar('Map Information',39);x.fillStyle='white';x.fillRect(sx,y,sw,165);box(165);x.fillStyle='#111';x.font='17px Arial';x.textAlign='left';
- ['Basemap: Esri World Imagery','Coordinates: WGS 84 (EPSG:4326)','Slope: Classified polygons (A–F)','Generated: '+new Date().toLocaleDateString('en-PH'),'No data is excluded from class totals'].forEach((line,i)=>x.fillText(line,sx+14,y+30+i*27));
- return c;
-};
-$('download-jpeg').onclick=async()=>{try{const c=await layoutCanvas();c.toBlob(b=>{if(!b){$('status').textContent='JPEG encoding failed';return}saveBlob(b,'slope-map-layout-HD.jpg');$('status').textContent='JPEG layout ready'},'image/jpeg',.98)}catch(e){$('status').textContent='JPEG error: '+e.message}};
-$('download-shp').onclick=async()=>{if(!result)return alert('Generate a slope map first');$('status').textContent='Preparing Shapefile ZIP…';try{const r=await fetch('/download/shapefile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(result)});if(!r.ok){const d=await r.json().catch(()=>({}));throw Error(d.detail||'Shapefile export failed')}saveBlob(await r.blob(),'slope-map-shapefile.zip');$('status').textContent='Shapefile ZIP ready'}catch(e){$('status').textContent='Shapefile error: '+e.message}};
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SlopeMap — Nationwide GIS Downloader</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f6f4;color:#173b2c;font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif}
+header{background:#14543d;color:white;padding:22px max(20px,calc((100vw - 900px)/2))}h1{margin:0;font-size:clamp(22px,3vw,30px)}header p{margin:6px 0 0;color:#e0f2e8}
+main{max-width:900px;margin:28px auto;padding:0 16px}.panel{background:white;border:1px solid #e1e9e4;border-radius:15px;padding:24px;box-shadow:0 5px 18px #153b2710}
+.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}label{display:block;font-size:14px;font-weight:650;margin-bottom:7px}
+select{width:100%;padding:12px;border:1px solid #b9cdc0;border-radius:9px;background:white;font-size:16px;color:#173b2c}
+.status{margin:22px 0;padding:16px;border-radius:10px;background:#f0f4f2;color:#465d50}.status.loading{background:#eaf2fa;color:#194b70;display:flex;align-items:center;gap:10px}.status.loading:before{content:"";width:17px;height:17px;border:3px solid #b7d1e5;border-top-color:#14649a;border-radius:50%;animation:spin .75s linear infinite;flex-shrink:0}
+.status.ready{background:#eaf6ed;color:#145c38}.status.waiting{background:#fff6e5;color:#775012}.status.error{background:#fff2ec;color:#8d3722}@keyframes spin{to{transform:rotate(360deg)}}
+.actions{display:flex;flex-wrap:wrap;gap:12px}button{flex:1;min-width:180px;border:0;border-radius:9px;background:#16764e;color:white;padding:13px 18px;font-size:15px;font-weight:650;cursor:pointer}button:disabled{background:#b6c8bd;cursor:not-allowed}
+.note{font-size:13px;color:#647a6d;margin:18px 0 0;line-height:1.5}.progress{margin-top:18px;padding:18px;border:1px solid #e1e9e4;border-radius:12px;background:white}.bar{height:10px;border-radius:10px;background:#e4ece6;overflow:hidden;margin:12px 0}.bar>div{height:100%;width:0;background:#16764e;transition:width .3s}
+@media(max-width:620px){.fields{grid-template-columns:1fr}.panel{padding:17px}.actions{flex-direction:column}button{width:100%}}
+</style></head>
+<body><header><h1>SlopeMap — Nationwide GIS Downloader</h1><p>Select an administrative area and download available pre-generated slope map files.</p></header>
+<main><section class="panel"><div class="fields">
+<div><label for="island">Island group</label><select id="island"><option value="">Loading island groups…</option></select></div>
+<div><label for="region">Region</label><select id="region" disabled><option value="">Select island group first</option></select></div>
+<div><label for="province">Province</label><select id="province" disabled><option value="">Select region first</option></select></div>
+<div><label for="municipality">Municipality / City (optional)</label><select id="municipality" disabled><option value="">Whole province</option></select></div>
+<div><label for="barangay">Barangay (optional)</label><select id="barangay" disabled><option value="">All barangays</option></select></div>
+</div>
+<div id="status" class="status" role="status" aria-live="polite">Loading available pre-generated exports from Cloudflare R2…</div>
+<div class="actions"><button data-format="jpeg" disabled>Download Layout JPEG</button><button data-format="zip" disabled>Download Shapefile (ZIP)</button></div>
+<p class="note">Downloads are served directly from private Cloudflare R2. Selecting an area does not start GIS processing. Buttons activate only when the corresponding pre-generated export exists. PDF download is intentionally not included.</p>
+</section>
+<section class="progress" aria-label="Nationwide preprocessing status"><h2 style="margin:0;font-size:19px">Nationwide Preprocessing Status</h2><div id="progress-summary" role="status" aria-live="polite">Checking prepared datasets…</div><div class="bar"><div id="progress-bar"></div></div><div id="progress-detail" class="note" style="margin:0">Checking Cloudflare R2.</div></section>
+</main>
+<script>
+const $=id=>document.getElementById(id),buttons=[...document.querySelectorAll('[data-format]')];let regions=[],inventory=[],selectedLevel=null,selectedFid=null;
+const groups={Luzon:['NCR','CAR','Region I','Region II','Region III','Region IV-A','MIMAROPA','Region V'],Visayas:['Region VI','Region VII','Region VIII'],Mindanao:['Region IX','Region X','Region XI','Region XII','Region XIII','BARMM']};
+function setStatus(msg,kind=''){const el=$('status');el.textContent=msg;el.className='status '+kind}
+function fill(el,items,placeholder){el.replaceChildren(new Option(placeholder,''),...items.map(x=>new Option(x.name,x.code)))}
+function resetBelow(level){const ids=['region','province','municipality','barangay'],i=ids.indexOf(level);for(let j=i+1;j<ids.length;j++){const id=ids[j];$(id).replaceChildren(new Option(id==='municipality'?'Whole province':id==='barangay'?'All barangays':'Select above',''));$(id).disabled=true}} 
+async function loadBoundaries(level,parent){const r=await fetch('/boundaries?level='+level+(parent?'&parent_code='+encodeURIComponent(parent):''),{cache:'no-store'});const d=await r.json();if(!r.ok)throw Error(d.detail||'Unable to load '+level);return d}
+function selected(){return inventory.find(x=>x.level===selectedLevel&&String(x.fid)===String(selectedFid))}
+function update(){const item=selected(),formats=item?.formats||[];buttons.forEach(b=>b.disabled=!item||!formats.includes(b.dataset.format));if(!$('region').value)setStatus('Select an island group and region to continue.');else if(!$('province').value)setStatus('Select a province to continue.');else if(item&&formats.length)setStatus('✓ Ready to Download — '+item.name+'. Available: '+formats.map(x=>x==='jpeg'?'JPEG':'Shapefile ZIP').join(', ')+'.','ready');else if(selectedFid)setStatus('Selected area is not pre-generated yet. It will become downloadable after its exports are prepared.','waiting');else setStatus('Select an administrative area to check available downloads.')}
+async function inventoryLoad(){try{const r=await fetch('/api/slope-inventory',{cache:'no-store'}),d=await r.json();if(!r.ok)throw Error(d.detail||'R2 inventory unavailable');inventory=d.items||[];update()}catch(e){setStatus('Cannot load export inventory: '+e.message,'error')}}
+$('island').addEventListener('change',()=>{resetBelow('region');const group=$('island').value;const list=regions.filter(x=>groups[group]?.some(n=>x.name.toLowerCase().includes(n.toLowerCase())));fill($('region'),list,'Select region');$('region').disabled=!group;update()});
+$('region').addEventListener('change',async()=>{resetBelow('region');selectedLevel=selectedFid=null;update();if(!$('region').value)return;try{setStatus('Loading provinces…','loading');const a=await loadBoundaries('province',$('region').value);fill($('province'),a,'Select province');$('province').disabled=false;setStatus('Select a province to continue.')}catch(e){setStatus(e.message,'error')}});
+$('province').addEventListener('change',async()=>{resetBelow('province');selectedLevel=$('province').value?'province':null;selectedFid=$('province').value.split(':')[1]||null;await loadChildren('municipality',$('province').value);update()});
+async function loadChildren(level,parent){if(!parent)return;try{const a=await loadBoundaries(level,parent);fill($(level),a,level==='municipality'?'Whole province':'All barangays');$(level).disabled=false}catch(e){setStatus(e.message,'error')}}
+$('municipality').addEventListener('change',async()=>{resetBelow('municipality');if($('municipality').value){selectedLevel='municipality';selectedFid=$('municipality').value.split(':')[1]||null;await loadChildren('barangay',$('municipality').value)}else{selectedLevel='province';selectedFid=$('province').value.split(':')[1]||null}update()});
+$('barangay').addEventListener('change',()=>{if($('barangay').value){selectedLevel='barangay';selectedFid=$('barangay').value.split(':')[1]||null}else if($('municipality').value){selectedLevel='municipality';selectedFid=$('municipality').value.split(':')[1]||null}else{selectedLevel='province';selectedFid=$('province').value.split(':')[1]||null}update()});
+buttons.forEach(b=>b.addEventListener('click',()=>{const item=selected();if(!item)return;setStatus('Starting download from Cloudflare R2…','loading');window.location.assign('/api/slope-download?level='+encodeURIComponent(item.level)+'&fid='+encodeURIComponent(item.fid)+'&format='+encodeURIComponent(b.dataset.format))}));
+async function progress(){try{const r=await fetch('/gis/preprocessing-status',{cache:'no-store'}),d=await r.json();if(!r.ok)throw Error(d.detail||'Status unavailable');const ready=Number(d.ready_provinces||0),total=Number(d.total_provinces||0),pct=total?Math.round(ready/total*1000)/10:0;$('progress-summary').textContent=ready+' / '+total+' provinces preprocessed ('+pct+'%)';$('progress-bar').style.width=pct+'%';$('progress-detail').textContent='Ready province datasets in R2. '+(d.empty_or_invalid||0)+' empty/invalid; '+(d.oversized||0)+' oversized. '+(d.note||'')}catch(e){$('progress-summary').textContent='Preprocessing status unavailable';$('progress-detail').textContent=e.message}}
+(async()=>{try{regions=await loadBoundaries('region');$('island').replaceChildren(new Option('Select island group',''),...Object.keys(groups).map(x=>new Option(x,x)));$('island').disabled=false;setStatus('Select an island group to begin.')}catch(e){setStatus('Boundary inventory unavailable: '+e.message,'error')}await inventoryLoad();await progress()})();
 </script></body></html>
