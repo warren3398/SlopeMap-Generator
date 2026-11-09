@@ -118,11 +118,10 @@ def status():
 
 @router.get("/gis/preprocessing-status")
 def preprocessing_status():
+    # Lightweight R2-only status: do not download the nationwide province GeoPackage
+    # merely to count features, which can exhaust the small Render web instance.
     prefix="prepared/provinces/v1/"
-    count=0
-    empty_or_invalid=0
-    oversized=0
-    continuation=None
+    count=0;empty_or_invalid=0;oversized=0;continuation=None
     while True:
         params={"Bucket":BUCKET,"Prefix":prefix,"MaxKeys":1000}
         if continuation:params["ContinuationToken"]=continuation
@@ -134,7 +133,7 @@ def preprocessing_status():
             else:count+=1
         if not response.get("IsTruncated"):break
         continuation=response.get("NextContinuationToken")
-    return {"ready_provinces":count,"empty_or_invalid":empty_or_invalid,"oversized":oversized,"total_provinces":int(pyogrio.read_info(local_file("province"))["features"]),"storage":"Cloudflare R2","note":"Ready counts exclude empty and >50 MB prepared objects; coverage is limited to the uploaded slope source dataset."}
+    return {"ready_provinces":count,"empty_or_invalid":empty_or_invalid,"oversized":oversized,"total_provinces":None,"storage":"Cloudflare R2","note":"Counts pre-generated province objects in R2. Total province count is omitted to avoid loading the nationwide boundary GeoPackage into Render memory."}
 
 @router.get("/gis/inspect-slope")
 def inspect_slope():
@@ -159,6 +158,11 @@ def inspect_boundaries():
     return result
 
 def region_frame(code):
+    # Region boundaries are a separate, much smaller GeoPackage.
+    if code.isdigit():
+        df=pyogrio.read_dataframe(local_file("region"),fids=[int(code)])
+        if not df.empty:return valid_poly(df.to_crs(4326).geometry.iloc[0])
+    # Backward-compatible ADM1_PCODE lookup for older region selectors.
     provinces=pyogrio.read_dataframe(local_file("province"),columns=["ADM1_PCODE","ADM1_EN"])
     selected=provinces[provinces["ADM1_PCODE"].astype(str)==code]
     if selected.empty:raise HTTPException(404,"Region not found")
@@ -178,11 +182,13 @@ def boundaries(level:str,parent_code:str|None=None):
     if level not in ("region","province","municipality","barangay"):
         raise HTTPException(400,"Invalid level")
     if level=="region":
-        df=pyogrio.read_dataframe(local_file("province"),columns=["ADM1_EN","ADM1_PCODE"])
-        if not {"ADM1_EN","ADM1_PCODE"}.issubset(df.columns):
-            raise HTTPException(422,"Province dataset lacks ADM1_EN / ADM1_PCODE")
-        unique=df[["ADM1_EN","ADM1_PCODE"]].dropna().drop_duplicates()
-        return sorted([{"code":"region:"+str(r.ADM1_PCODE),"name":str(r.ADM1_EN)} for r in unique.itertuples(index=False)],key=lambda x:x["name"])
+        # Read the dedicated regional boundary layer, not the nationwide province polygons.
+        df=pyogrio.read_dataframe(local_file("region"),fid_as_index=True,read_geometry=False)
+        cols=list(df.columns)
+        col=next((c for c in ("ADM1_EN","REGION","REGION_NAME","NAME_1","ADM1_PCODE") if c in cols),None)
+        if col is None:col=next((c for c in cols if "NAME" in str(c).upper()),None)
+        if col is None:raise HTTPException(422,"Cannot identify region name field in region GeoPackage")
+        return sorted([{"code":"region:"+str(fid),"name":str(row[col])} for fid,row in df.iterrows() if row[col] is not None],key=lambda x:x["name"])
     source=local_file(level)
     info=pyogrio.read_info(source)
     if parent_code:
