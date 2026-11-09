@@ -1,0 +1,30 @@
+name: Generate verified Abra slope exports
+on:
+  push:
+    paths:
+      - "dispatch/generate-abra-province.txt"
+  workflow_dispatch:
+jobs:
+  export-abra:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install GIS dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install matplotlib
+      - name: Generate Abra from existing slope source
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$R2_ACCOUNT_ID"
+          test -n "$R2_ACCESS_KEY_ID"
+          test -n "$R2_SECRET_ACCESS_KEY"
+          python -u -m scripts.build_slope_exports --level province --fid 66 --overwrite
