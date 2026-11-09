@@ -47,7 +47,19 @@ def build_export(a):
     boundary_frame=pyogrio.read_dataframe(boundary_path,fids=[a.fid])
     if boundary_frame.empty:raise ValueError("Boundary FID not found")
     boundary=valid_poly(boundary_frame.geometry.iloc[0])
-    boundary_label=" / ".join(str(boundary_frame.iloc[0][c]) for c in ("ADM2_EN","ADM3_EN","ADM4_EN") if c in boundary_frame.columns and boundary_frame.iloc[0][c] is not None) or f"{a.level} FID {a.fid}"
+    # Resolve the selected administrative unit's actual name. Some province
+    # boundary records store the province label in ADM2ALTEN while ADM2_EN is
+    # blank; never expose an internal FID as the map's province name.
+    row=boundary_frame.iloc[0]
+    name_fields={
+        "province":("ADM2_EN","ADM2ALTEN","ADM2_NAME","PROVINCE","NAME_1","ADM1_EN"),
+        "municipality":("ADM3_EN","ADM3ALTEN","ADM3_NAME","MUNICIPALITY","NAME_2"),
+        "barangay":("ADM4_EN","ADM4ALTEN","ADM4_NAME","BARANGAY","NAME_3"),
+    }.get(a.level,("ADM2_EN","ADM2ALTEN","ADM3_EN","ADM4_EN","NAME"))
+    boundary_name=next((str(row[c]).strip() for c in name_fields if c in boundary_frame.columns and row[c] is not None and str(row[c]).strip() and str(row[c]).strip().lower() not in ("nan","none","null")),None)
+    if not boundary_name:
+        raise ValueError(f"Administrative name is missing for {a.level} FID {a.fid}; refusing to publish an FID-labelled map")
+    boundary_label=boundary_name
     if boundary_frame.crs is None:raise ValueError("Boundary dataset has no CRS")
     slope_path=local_file("slope")
     info=pyogrio.read_info(slope_path);source_crs=info["crs"]
@@ -111,7 +123,7 @@ def build_export(a):
         ax.text(.962,.938,"N\n▲",transform=ax.transAxes,ha="center",va="center",fontsize=12,fontweight="bold")
         panel.add_patch(plt.Rectangle((0, .91),1,.09,color="#07552f",transform=panel.transAxes))
         panel.text(.5,.955,"SLOPE MAP",color="white",ha="center",va="center",fontsize=18,fontweight="bold",transform=panel.transAxes)
-        panel.text(.5,.875,a.level.title()+" FID "+str(a.fid),ha="center",fontsize=14,fontweight="bold",transform=panel.transAxes)
+        panel.text(.5,.875,boundary_label,ha="center",fontsize=14,fontweight="bold",transform=panel.transAxes)
         panel.add_patch(plt.Rectangle((0,.79),1,.045,color="#07552f",transform=panel.transAxes))
         panel.text(.5,.812,"Legend",color="white",ha="center",va="center",fontsize=13,fontweight="bold",transform=panel.transAxes)
         y=.755
