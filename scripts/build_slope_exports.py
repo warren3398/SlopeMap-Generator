@@ -56,6 +56,12 @@ def build_export(a):
     candidates=pyogrio.read_dataframe(slope_path,bbox=tuple(boundary_source.bounds))
     if candidates.empty:raise ValueError("No slope polygons intersect this boundary")
     candidates=candidates.to_crs(source_crs)
+    # Diagnose source/target spatial alignment before clipping. A few tiny
+    # slivers can pass a bbox query even when CRS metadata is incorrect.
+    source_bounds=tuple(round(float(v),5) for v in candidates.total_bounds)
+    boundary_bounds=tuple(round(float(v),5) for v in boundary_source.bounds)
+    source_area=float(candidates.to_crs(6933).geometry.area.sum()/10000)
+    print("SPATIAL_QA "+json.dumps({"slope_crs":str(source_crs),"boundary_crs":str(boundary_frame.crs),"boundary_bounds_source_crs":boundary_bounds,"slope_candidates_bounds":source_bounds,"slope_candidates":len(candidates),"slope_candidate_area_ha":round(source_area,3),"boundary_area_ha":round(float(gpd.GeoSeries([boundary_source],crs=source_crs).to_crs(6933).area.iloc[0]/10000),3)}),flush=True)
     candidates=candidates[candidates.geometry.notna() & ~candidates.geometry.is_empty].copy()
     candidates["slope_class"]=candidates[field].astype(str).str.strip().str.upper()
     candidates=candidates[candidates.slope_class.isin(COLORS)].copy()
