@@ -1,0 +1,44 @@
+name: Build SlopeMap downloads
+on:
+  workflow_dispatch:
+    inputs:
+      level:
+        description: Administrative level
+        type: choice
+        options:
+          - province
+          - municipality
+          - barangay
+        required: true
+        default: province
+      fid:
+        description: GeoPackage feature ID (FID)
+        required: true
+        default: "66"
+      overwrite:
+        description: Replace existing JPEG and Shapefile ZIP
+        type: boolean
+        required: true
+        default: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install GIS and layout dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install matplotlib
+      - name: Build and upload selected area exports
+        env:
+          R2_ACCOUNT_ID: \${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: \${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: \${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          ARGS=""
+          if [ "\${{ inputs.overwrite }}" = "true" ]; then ARGS="--overwrite"; fi
+          python -u -m scripts.build_slope_exports --level "\${{ inputs.level }}" --fid "\${{ inputs.fid }}" $ARGS
