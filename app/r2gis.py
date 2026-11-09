@@ -239,7 +239,7 @@ def province_tile(province_id:int,z:int,x:int,y:int):
 @router.get("/api/slope-inventory")
 def slope_inventory():
     storage=client()
-    items=[]
+    catalog={}
     token=None
     while True:
         args={"Bucket":BUCKET,"Prefix":"exports/slope/","MaxKeys":1000}
@@ -247,12 +247,15 @@ def slope_inventory():
         page=storage.list_objects_v2(**args)
         for obj in page.get("Contents",[]):
             import re
-            m=re.fullmatch(r"exports/slope/(province|municipality|barangay)/(\\d+)/slope\\.(jpg|zip)",obj["Key"])
+            m=re.fullmatch(r"exports/slope/(province|municipality|barangay)/(\d+)/slope\.(jpg|zip)",obj["Key"])
             if m and obj.get("Size",0)>0:
-                items.append({"level":m.group(1),"fid":m.group(2),"format":m.group(3),"size":obj["Size"]})
+                identity=(m.group(1),m.group(2))
+                item=catalog.setdefault(identity,{"level":identity[0],"fid":identity[1],"name":identity[0].title()+" FID "+identity[1],"formats":[]})
+                fmt="jpeg" if m.group(3)=="jpg" else "zip"
+                if fmt not in item["formats"]:item["formats"].append(fmt)
         if not page.get("IsTruncated"):break
         token=page.get("NextContinuationToken")
-    return {"items":items,"formats":["jpeg","shapefile_zip"],"pdf":False}
+    return {"items":list(catalog.values()),"pdf":False,"source":"Cloudflare R2 pre-generated exports"}
 
 @router.get("/api/slope-download")
 def slope_download(level:str,fid:int,format:str):
