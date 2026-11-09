@@ -28,7 +28,23 @@ select{width:100%;padding:12px;border:1px solid #b9cdc0;border-radius:9px;backgr
 </main>
 <script>
 const $=id=>document.getElementById(id),buttons=[...document.querySelectorAll('[data-format]')];let regions=[],inventory=[],selectedLevel=null,selectedFid=null;
-const groups={Luzon:['NCR','National Capital Region','CAR','Cordillera','Region I','Region II','Region III','Region IV-A','MIMAROPA','Region V'],Visayas:['Region VI','Region VII','Region VIII'],Mindanao:['Region IX','Region X','Region XI','Region XII','Region XIII','BARMM','Bangsamoro']};
+const groups={
+Luzon:['NCR','National Capital Region','Metro Manila','CAR','Cordillera','Region I','Ilocos','Region II','Cagayan Valley','Region III','Central Luzon','Region IV-A','CALABARZON','Region IV-B','MIMAROPA','Southwestern Tagalog','Region V','Bicol'],
+Visayas:['Region VI','Western Visayas','Negros Island','NIR','Region VII','Central Visayas','Region VIII','Eastern Visayas'],
+Mindanao:['Region IX','Zamboanga Peninsula','Region X','Northern Mindanao','Region XI','Davao','Region XII','SOCCSKSARGEN','Region XIII','Caraga','BARMM','Bangsamoro','ARMM']
+};
+const regionCodes={
+Luzon:['13','14','01','02','03','04','05','0401','0402'],
+Visayas:['06','07','08','18'],
+Mindanao:['09','10','11','12','16','15','19']
+};
+function normalizeRegion(v){return String(v||'').toLowerCase().replace(/[^a-z0-9]/g,'')}
+function belongsToGroup(region,group){
+ const name=normalizeRegion(region.name);
+ if(groups[group]?.some(alias=>name.includes(normalizeRegion(alias))))return true;
+ const code=String(region.code||'').split(':')[1]||'';
+ return regionCodes[group]?.some(c=>code===c||code==='PH'+c)||false;
+}
 function setStatus(msg,kind=''){const el=$('status');el.textContent=msg;el.className='status '+kind}
 function fill(el,items,placeholder){el.replaceChildren(new Option(placeholder,''),...items.map(x=>new Option(x.name,x.code)))}
 function resetBelow(level){const ids=['region','province','municipality','barangay'],i=ids.indexOf(level);for(let j=i+1;j<ids.length;j++){const id=ids[j];$(id).replaceChildren(new Option(id==='municipality'?'Whole province':id==='barangay'?'All barangays':'Select above',''));$(id).disabled=true}} 
@@ -37,7 +53,7 @@ async function loadBoundaries(level,parent){const r=await fetch('/boundaries?lev
 function selected(){return inventory.find(x=>x.level===selectedLevel&&String(x.fid)===String(selectedFid))}
 function update(){const item=selected(),formats=item?.formats||[];buttons.forEach(b=>b.disabled=!item||!formats.includes(b.dataset.format));if(!$('region').value)setStatus('Select an island group and region to continue.');else if(!$('province').value)setStatus('Select a province to continue.');else if(item&&formats.length)setStatus('✓ Ready to Download — '+item.name+'. Available: '+formats.map(x=>x==='jpeg'?'JPEG':'Shapefile ZIP').join(', ')+'.','ready');else if(selectedFid)setStatus('Selected area is not pre-generated yet. It will become downloadable after its exports are prepared.','waiting');else setStatus('Select an administrative area to check available downloads.')}
 async function inventoryLoad(){try{const r=await fetch('/api/slope-inventory',{cache:'no-store'}),d=await readJson(r,'R2 export inventory');if(!r.ok)throw Error(d.detail||'R2 inventory unavailable');inventory=d.items||[];update()}catch(e){setStatus('Cannot load export inventory: '+e.message,'error')}}
-$('island').addEventListener('change',()=>{resetBelow('region');const group=$('island').value;const list=regions.filter(x=>groups[group]?.some(n=>x.name.toLowerCase().includes(n.toLowerCase())));fill($('region'),list,'Select region');$('region').disabled=!group;update()});
+$('island').addEventListener('change',()=>{resetBelow('region');const group=$('island').value;const list=regions.filter(x=>belongsToGroup(x,group));fill($('region'),list,'Select region');$('region').disabled=!group;if(group&&!list.length)setStatus('No regions matched '+group+'. Check the region names returned by the boundary service.','error');else update()});
 $('region').addEventListener('change',async()=>{resetBelow('region');selectedLevel=selectedFid=null;update();if(!$('region').value)return;try{setStatus('Loading provinces…','loading');const a=await loadBoundaries('province',$('region').value);fill($('province'),a,'Select province');$('province').disabled=false;setStatus('Select a province to continue.')}catch(e){setStatus(e.message,'error')}});
 $('province').addEventListener('change',async()=>{resetBelow('province');selectedLevel=$('province').value?'province':null;selectedFid=$('province').value.split(':')[1]||null;await loadChildren('municipality',$('province').value);update()});
 async function loadChildren(level,parent){if(!parent)return;try{const a=await loadBoundaries(level,parent);fill($(level),a,level==='municipality'?'Whole province':'All barangays');$(level).disabled=false}catch(e){setStatus(e.message,'error')}}
