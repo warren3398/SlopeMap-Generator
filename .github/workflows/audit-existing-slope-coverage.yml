@@ -1,0 +1,26 @@
+name: Audit existing slope coverage by province
+on:
+  workflow_dispatch:
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install GIS dependencies
+        run: pip install -r requirements.txt
+      - name: Calculate coverage using existing source only
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: python -u -m scripts.audit_province_coverage
+      - name: Upload province coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: existing-slope-province-coverage
+          path: province_slope_coverage.csv
+          if-no-files-found: error
