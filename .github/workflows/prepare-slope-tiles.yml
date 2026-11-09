@@ -1,5 +1,10 @@
 name: Prepare slope raster tiles (pilot)
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/prepare_slope_tiles.py'
+      - '.github/workflows/prepare-slope-tiles.yml'
   workflow_dispatch:
     inputs:
       province_fid:
@@ -32,4 +37,4 @@ jobs:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: python -u -m scripts.prepare_slope_tiles --province-fid "${{ inputs.province_fid }}" --min-zoom "${{ inputs.min_zoom }}" --max-zoom "${{ inputs.max_zoom }}"
+        run: python -u -m scripts.prepare_slope_tiles --province-fid "${{ inputs.province_fid || '66' }}" --min-zoom "${{ inputs.min_zoom || '7' }}" --max-zoom "${{ inputs.max_zoom || '11' }}"
