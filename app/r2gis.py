@@ -207,6 +207,33 @@ def boundaries(level:str,parent_code:str|None=None):
             return str(v or "").strip()==region_code
         df=df[df[region_col].map(same_region)]
         return sorted([{"code":"province:"+str(fid),"name":str(row[name_col])} for fid,row in df.iterrows() if row[name_col] is not None],key=lambda x:x["name"])
+    if level=="municipality" and parent_code and parent_code.startswith("province:"):
+        # Province-to-municipality is an administrative relationship, not a
+        # geometric nearest/intersection query. Use the actual parent PSGC.
+        province_fid=int(parent_code.split(":",1)[1])
+        parent=pyogrio.read_dataframe(local_file("province"),fids=[province_fid])
+        if parent.empty:raise HTTPException(404,"Parent province not found")
+        parent_fields=list(parent.columns)
+        parent_key=next((c for c in ("ADM2_PCODE","PROV_PCODE","PROVINCE_CODE","PSGC_PROV") if c in parent_fields),None)
+        muni_fields=list(info["fields"])
+        child_key=next((c for c in ("ADM2_PCODE","PROV_PCODE","PROVINCE_CODE","PSGC_PROV") if c in muni_fields),None)
+        name_key=next((c for c in ("ADM3_EN","CITY_MUN","MUNICIPALITY","MUN_NAME","CITY_NAME","NAME_3") if c in muni_fields),None)
+        if not name_key:raise HTTPException(422,"Municipality name field missing; available fields: "+", ".join(map(str,muni_fields)))
+        if parent_key and child_key:
+            parent_value=str(parent.iloc[0][parent_key]).strip()
+            df=pyogrio.read_dataframe(source,columns=[name_key,child_key],read_geometry=False,fid_as_index=True)
+            df=df[df[child_key].astype(str).str.strip()==parent_value]
+        else:
+            # Fallback to geometry when administrative codes are unavailable.
+            geom=selected_geometry(parent_code)
+            bbox=tuple(gpd.GeoSeries([geom],crs=4326).to_crs(info["crs"]).total_bounds)
+            df=pyogrio.read_dataframe(source,bbox=bbox,fid_as_index=True)
+            if not df.empty:
+                df=df.to_crs(4326)
+                df=df[df.geometry.representative_point().within(geom)]
+        if df.empty:raise HTTPException(404,"No municipalities found for this province")
+        if name_key not in df.columns:raise HTTPException(422,"Municipality name column missing after filtering")
+        return sorted([{"code":"municipality:"+str(fid),"name":str(row[name_key])} for fid,row in df.iterrows() if row[name_key] is not None],key=lambda x:x["name"])
     if parent_code:
         geom=selected_geometry(parent_code)
         bbox=tuple(gpd.GeoSeries([geom],crs=4326).to_crs(info["crs"]).total_bounds)
