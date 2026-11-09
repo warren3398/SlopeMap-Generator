@@ -15,12 +15,12 @@ from app.r2gis import local_file, client, BUCKET, valid_poly, slope_column
 COLORS={"A":"#418a41","B":"#89b340","C":"#dde340","D":"#ffe240","E":"#ffa340","F":"#ff0000"}
 RANGES={"A":"0–3%","B":"3–8%","C":"8–18%","D":"18–30%","E":"30–50%","F":">50%"}
 NAMES={"A":"Level to nearly level","B":"Gently sloping","C":"Sloping","D":"Moderately steep","E":"Steep","F":"Very steep"}
-def main():
-    p=argparse.ArgumentParser()
-    p.add_argument("--level",choices=["province","municipality","barangay"],required=True)
-    p.add_argument("--fid",type=int,required=True)
-    p.add_argument("--overwrite",action="store_true")
-    a=p.parse_args()
+def build_one(level, fid, overwrite=False):
+    class Args: pass
+    a=Args(); a.level=level; a.fid=fid; a.overwrite=overwrite
+    return build_export(a)
+
+def build_export(a):
     if a.fid<0:raise ValueError("Invalid boundary FID")
     key=f"exports/slope/{a.level}/{a.fid}/"
     r2=client()
@@ -104,4 +104,31 @@ def main():
         jpg=td/"slope.jpg";fig.savefig(jpg,format="jpg",dpi=180,bbox_inches="tight",pad_inches=.12);plt.close(fig)
         r2.upload_file(str(jpg),BUCKET,key+"slope.jpg",ExtraArgs={"ContentType":"image/jpeg"})
     print("READY",json.dumps({"level":a.level,"fid":a.fid,"features":len(candidates),"area_ha":round(total,3),"formats":["jpeg","zip"],"prefix":key}),flush=True)
+def main():
+    p=argparse.ArgumentParser()
+    p.add_argument("--level",choices=["province","municipality","barangay"],required=True)
+    p.add_argument("--fid",type=int,default=None)
+    p.add_argument("--start",type=int,default=None,help="Start position in sorted GeoPackage FIDs")
+    p.add_argument("--limit",type=int,default=1)
+    p.add_argument("--overwrite",action="store_true")
+    a=p.parse_args()
+    if a.fid is not None:
+        return build_export(a)
+    if a.start is None:raise SystemExit("Specify --fid or --start")
+    if a.start<0 or a.limit<1 or a.limit>200:raise SystemExit("Invalid batch range (limit 1–200)")
+    # FID order is the exact row index used by /boundaries dropdown.
+    path=local_file(a.level)
+    info=pyogrio.read_info(path)
+    count=int(info["features"])
+    end=min(a.start+a.limit,count)
+    print(f"BATCH {a.level}: positions {a.start}..{end-1} of {count}",flush=True)
+    failures=[]
+    for fid in range(a.start,end):
+        print(f"PROCESS {a.level}/{fid}",flush=True)
+        try:build_one(a.level,fid,a.overwrite)
+        except Exception as exc:
+            failures.append({"fid":fid,"error":str(exc)})
+            print(f"FAILED {a.level}/{fid}: {type(exc).__name__}: {exc}",flush=True)
+    print("BATCH_SUMMARY "+json.dumps({"level":a.level,"start":a.start,"limit":a.limit,"failures":failures}),flush=True)
+    if failures:raise SystemExit(f"{len(failures)} exports failed; see BATCH_SUMMARY")
 if __name__=="__main__":main()
