@@ -33,18 +33,13 @@ Luzon:['NCR','National Capital Region','Metro Manila','CAR','Cordillera','Region
 Visayas:['Region VI','Western Visayas','Negros Island','NIR','Region VII','Central Visayas','Region VIII','Eastern Visayas'],
 Mindanao:['Region IX','Zamboanga Peninsula','Region X','Northern Mindanao','Region XI','Davao','Region XII','SOCCSKSARGEN','Region XIII','Caraga','BARMM','Bangsamoro','ARMM']
 };
-const regionCodes={
-Luzon:['13','14','01','02','03','04','05','0401','0402'],
-Visayas:['06','07','08','18'],
-Mindanao:['09','10','11','12','16','15','19']
-};
-function normalizeRegion(v){return String(v||'').toLowerCase().replace(/[^a-z0-9]/g,'')}
-function belongsToGroup(region,group){
- const name=normalizeRegion(region.name);
- if(groups[group]?.some(alias=>name.includes(normalizeRegion(alias))))return true;
- const code=String(region.code||'').split(':')[1]||'';
- return regionCodes[group]?.some(c=>code===c||code==='PH'+c)||false;
-}
+const regionCatalog=[
+['Luzon','National Capital Region','130000000'],['Luzon','Cordillera Administrative Region','140000000'],['Luzon','Region I – Ilocos Region','010000000'],['Luzon','Region II – Cagayan Valley','020000000'],['Luzon','Region III – Central Luzon','030000000'],['Luzon','Region IV-A – CALABARZON','040000000'],['Luzon','MIMAROPA','170000000'],['Luzon','Region V – Bicol Region','050000000'],
+['Visayas','Region VI – Western Visayas','060000000'],['Visayas','Negros Island Region','180000000'],['Visayas','Region VII – Central Visayas','070000000'],['Visayas','Region VIII – Eastern Visayas','080000000'],
+['Mindanao','Region IX – Zamboanga Peninsula','090000000'],['Mindanao','Region X – Northern Mindanao','100000000'],['Mindanao','Region XI – Davao Region','110000000'],['Mindanao','Region XII – SOCCSKSARGEN','120000000'],['Mindanao','Region XIII – Caraga','160000000'],['Mindanao','BARMM','190000000']
+];
+function regionsFor(group){return regionCatalog.filter(x=>x[0]===group).map(x=>({name:x[1],code:'region:'+x[2]}))}
+
 function setStatus(msg,kind=''){const el=$('status');el.textContent=msg;el.className='status '+kind}
 function fill(el,items,placeholder){el.replaceChildren(new Option(placeholder,''),...items.map(x=>new Option(x.name,x.code)))}
 function resetBelow(level){const ids=['region','province','municipality','barangay'],i=ids.indexOf(level);for(let j=i+1;j<ids.length;j++){const id=ids[j];$(id).replaceChildren(new Option(id==='municipality'?'Whole province':id==='barangay'?'All barangays':'Select above',''));$(id).disabled=true}} 
@@ -53,7 +48,7 @@ async function loadBoundaries(level,parent){const r=await fetch('/boundaries?lev
 function selected(){return inventory.find(x=>x.level===selectedLevel&&String(x.fid)===String(selectedFid))}
 function update(){const item=selected(),formats=item?.formats||[];buttons.forEach(b=>b.disabled=!item||!formats.includes(b.dataset.format));if(!$('region').value)setStatus('Select an island group and region to continue.');else if(!$('province').value)setStatus('Select a province to continue.');else if(item&&formats.length)setStatus('✓ Ready to Download — '+item.name+'. Available: '+formats.map(x=>x==='jpeg'?'JPEG':'Shapefile ZIP').join(', ')+'.','ready');else if(selectedFid)setStatus('Selected area is not pre-generated yet. It will become downloadable after its exports are prepared.','waiting');else setStatus('Select an administrative area to check available downloads.')}
 async function inventoryLoad(){try{const r=await fetch('/api/slope-inventory',{cache:'no-store'}),d=await readJson(r,'R2 export inventory');if(!r.ok)throw Error(d.detail||'R2 inventory unavailable');inventory=d.items||[];update()}catch(e){setStatus('Cannot load export inventory: '+e.message,'error')}}
-$('island').addEventListener('change',()=>{resetBelow('region');const group=$('island').value;const list=regions.filter(x=>belongsToGroup(x,group));fill($('region'),list,'Select region');$('region').disabled=!group;if(group&&!list.length)setStatus('No regions matched '+group+'. Check the region names returned by the boundary service.','error');else update()});
+$('island').addEventListener('change',()=>{resetBelow('region');const group=$('island').value;const list=regionsFor(group);fill($('region'),list,'Select region');$('region').disabled=!group;if(group&&!list.length)setStatus('No regions matched '+group+'. Check the region names returned by the boundary service.','error');else update()});
 $('region').addEventListener('change',async()=>{resetBelow('region');selectedLevel=selectedFid=null;update();if(!$('region').value)return;try{setStatus('Loading provinces…','loading');const a=await loadBoundaries('province',$('region').value);fill($('province'),a,'Select province');$('province').disabled=false;setStatus('Select a province to continue.')}catch(e){setStatus(e.message,'error')}});
 $('province').addEventListener('change',async()=>{resetBelow('province');selectedLevel=$('province').value?'province':null;selectedFid=$('province').value.split(':')[1]||null;await loadChildren('municipality',$('province').value);update()});
 async function loadChildren(level,parent){if(!parent)return;try{const a=await loadBoundaries(level,parent);fill($(level),a,level==='municipality'?'Whole province':'All barangays');$(level).disabled=false}catch(e){setStatus(e.message,'error')}}
@@ -61,5 +56,5 @@ $('municipality').addEventListener('change',async()=>{resetBelow('municipality')
 $('barangay').addEventListener('change',()=>{if($('barangay').value){selectedLevel='barangay';selectedFid=$('barangay').value.split(':')[1]||null}else if($('municipality').value){selectedLevel='municipality';selectedFid=$('municipality').value.split(':')[1]||null}else{selectedLevel='province';selectedFid=$('province').value.split(':')[1]||null}update()});
 buttons.forEach(b=>b.addEventListener('click',()=>{const item=selected();if(!item)return;setStatus('Starting download from Cloudflare R2…','loading');window.location.assign('/api/slope-download?level='+encodeURIComponent(item.level)+'&fid='+encodeURIComponent(item.fid)+'&format='+encodeURIComponent(b.dataset.format))}));
 async function progress(){try{const r=await fetch('/gis/preprocessing-status',{cache:'no-store'}),d=await readJson(r,'Preprocessing status');if(!r.ok)throw Error(d.detail||'Status unavailable');const ready=Number(d.ready_provinces||0),total=d.total_provinces===null?null:Number(d.total_provinces||0),pct=total?Math.min(100,Math.round(ready/total*1000)/10):0;$('progress-summary').textContent=total===null?ready+' province exports preprocessed':' '+ready+' / '+total+' provinces preprocessed ('+pct+'%)';$('progress-bar').style.width=total===null?'0%':pct+'%';$('progress-detail').textContent='Ready province datasets in R2. '+(d.empty_or_invalid||0)+' empty/invalid; '+(d.oversized||0)+' oversized. '+(d.note||'')}catch(e){$('progress-summary').textContent='Preprocessing status unavailable';$('progress-detail').textContent=e.message}}
-(async()=>{try{regions=await loadBoundaries('region');$('island').replaceChildren(new Option('Select island group',''),...Object.keys(groups).map(x=>new Option(x,x)));$('island').disabled=false;setStatus('Select an island group to begin.')}catch(e){setStatus('Boundary inventory unavailable: '+e.message,'error')}await inventoryLoad();await progress()})();
+(async()=>{$('island').replaceChildren(new Option('Select island group',''),...Object.keys(groups).map(x=>new Option(x,x)));$('island').disabled=false;setStatus('Select an island group to begin.');await inventoryLoad();await progress()})();
 </script></body></html>
