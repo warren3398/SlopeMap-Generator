@@ -114,7 +114,7 @@ def build_export(a):
             if not part.empty:part.plot(ax=ax,color=COLORS[cls],edgecolor="none",zorder=2)
         # Draw the selected administrative boundary above every class polygon.
         # The dissolved outline was missing from the previous layout.
-        boundary_ll.boundary.plot(ax=ax,color="#26352d",linewidth=0.85,zorder=20)
+        gpd.GeoSeries([boundary],crs=boundary_frame.crs).to_crs(4326).boundary.plot(ax=ax,color="#26352d",linewidth=0.85,zorder=20)
         ax.set_aspect("equal");ax.set_axis_off();ax.set_title("SLOPE CLASSIFICATION MAP",fontsize=17,fontweight="bold",pad=12)
         boundary_ll=gpd.GeoSeries([boundary],crs=boundary_frame.crs).to_crs(4326)
         bounds=boundary_ll.total_bounds
