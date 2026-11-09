@@ -182,13 +182,17 @@ def boundaries(level:str,parent_code:str|None=None):
     if level not in ("region","province","municipality","barangay"):
         raise HTTPException(400,"Invalid level")
     if level=="region":
-        # Read the dedicated regional boundary layer, not the nationwide province polygons.
-        df=pyogrio.read_dataframe(local_file("region"),fid_as_index=True,read_geometry=False)
-        cols=list(df.columns)
-        col=next((c for c in ("ADM1_EN","REGION","REGION_NAME","NAME_1","ADM1_PCODE") if c in cols),None)
-        if col is None:col=next((c for c in cols if "NAME" in str(c).upper()),None)
-        if col is None:raise HTTPException(422,"Cannot identify region name field in region GeoPackage")
-        return sorted([{"code":"region:"+str(fid),"name":str(row[col])} for fid,row in df.iterrows() if row[col] is not None],key=lambda x:x["name"])
+        # The region dropdown and province filter MUST use the same ADM1_PCODE
+        # from the province dataset. Do not assume PSGC code conventions.
+        source=local_file("province")
+        info=pyogrio.read_info(source)
+        fields=list(info["fields"])
+        region_code=next((c for c in ("ADM1_PCODE","REGION_CODE","REG_CODE","ADM1_CODE") if c in fields),None)
+        region_name=next((c for c in ("ADM1_EN","REGION","REGION_NAME","REG_NAME") if c in fields),None)
+        if not region_code or not region_name:raise HTTPException(422,"Province dataset is missing region name/code fields")
+        df=pyogrio.read_dataframe(source,columns=[region_code,region_name],read_geometry=False)
+        pairs={(str(code).strip(),str(name).strip()) for code,name in zip(df[region_code],df[region_name]) if code is not None and name is not None}
+        return sorted([{"code":"region:"+code,"name":name} for code,name in pairs],key=lambda x:x["name"])
     source=local_file(level)
     info=pyogrio.read_info(source)
     if level=="province" and parent_code and parent_code.startswith("region:"):
@@ -200,12 +204,7 @@ def boundaries(level:str,parent_code:str|None=None):
         if region_col is None:raise HTTPException(422,"Province dataset has no region-code field")
         df=pyogrio.read_dataframe(source,columns=[name_col,region_col],read_geometry=False,fid_as_index=True)
         def same_region(v):
-            v=str(v or "").strip()
-            if v==region_code:return True
-            # Support PSGC legacy (e.g. 010000000) and newer numeric forms.
-            a=v.lstrip("0") or "0"
-            b=region_code.lstrip("0") or "0"
-            return a==b or (len(v)>=2 and len(region_code)>=2 and v[:2]==region_code[:2])
+            return str(v or "").strip()==region_code
         df=df[df[region_col].map(same_region)]
         return sorted([{"code":"province:"+str(fid),"name":str(row[name_col])} for fid,row in df.iterrows() if row[name_col] is not None],key=lambda x:x["name"])
     if parent_code:
