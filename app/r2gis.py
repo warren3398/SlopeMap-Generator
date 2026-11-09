@@ -217,7 +217,25 @@ def boundaries(level:str,parent_code:str|None=None):
     else:
         name_field=name_column(list(info["fields"]),level)
         df=pyogrio.read_dataframe(source,columns=[name_field],read_geometry=False,fid_as_index=True)
-    col=name_column(list(df.columns),level)
+    # Some GeoPackages have NAME_2 as the province label and NAME_3 as
+    # municipality. Never silently use a parent-level label for child dropdowns.
+    fields=list(df.columns)
+    if level=="municipality":
+        candidates=("ADM3_EN","CITY_MUN","MUNICIPALITY","MUN_NAME","CITY_NAME","NAME_3","NAME_2")
+    elif level=="barangay":
+        candidates=("ADM4_EN","BARANGAY","BRGY_NAME","BRGY","NAME_4","NAME_3")
+    else:
+        candidates=("ADM2_EN","PROVINCE","PROV_NAME","NAME_2")
+    col=next((c for c in candidates if c in fields),None)
+    if col is None:raise HTTPException(422,"No valid "+level+" name column; fields: "+", ".join(map(str,fields)))
+    # Do not show a municipality named exactly like the parent province if the
+    # dataset has a more specific field with real municipality names.
+    if level=="municipality" and parent_code and parent_code.startswith("province:"):
+        parent=pyogrio.read_dataframe(local_file("province"),fids=[int(parent_code.split(":")[1])])
+        parent_name=str(parent.iloc[0][name_column(list(parent.columns),"province")]).strip().casefold() if not parent.empty else ""
+        values=df[col].dropna().astype(str).str.strip()
+        if len(values)>0 and (values.str.casefold()==parent_name).all():
+            raise HTTPException(422,"Municipality layer is returning the province name, not municipality names. Available fields: "+", ".join(map(str,fields)))
     return sorted([{"code":level+":"+str(fid),"name":str(r[col])} for fid,r in df.iterrows() if r[col] is not None],key=lambda x:x["name"])
 
 @router.get("/gis/province-tiles/{province_id}/metadata")
