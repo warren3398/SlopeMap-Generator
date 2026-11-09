@@ -1,0 +1,57 @@
+name: Pre-generate nationwide slope exports in batches
+on:
+  workflow_dispatch:
+    inputs:
+      level:
+        description: Boundary level to export
+        required: true
+        type: choice
+        options:
+          - province
+          - municipality
+          - barangay
+        default: province
+      start:
+        description: Starting FID (zero-based)
+        required: true
+        default: "0"
+      limit:
+        description: Number of boundaries (recommended 1-5 for first run)
+        required: true
+        default: "1"
+      overwrite:
+        description: Replace existing files
+        required: true
+        type: boolean
+        default: false
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    concurrency:
+      group: slope-export-${{ inputs.level }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install GIS dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install matplotlib
+      - name: Generate and upload precomputed exports
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          LEVEL: ${{ inputs.level }}
+          START: ${{ inputs.start }}
+          LIMIT: ${{ inputs.limit }}
+          OVERWRITE: ${{ inputs.overwrite }}
+        run: |
+          set -euo pipefail
+          if [ -z "$R2_ACCOUNT_ID" ] || [ -z "$R2_ACCESS_KEY_ID" ] || [ -z "$R2_SECRET_ACCESS_KEY" ]; then echo "Missing R2 GitHub secrets"; exit 1; fi
+          ARGS=()
+          if [ "$OVERWRITE" = "true" ]; then ARGS+=(--overwrite); fi
+          python -u -m scripts.build_slope_exports --level "$LEVEL" --start "$START" --limit "$LIMIT" "${ARGS[@]}"
