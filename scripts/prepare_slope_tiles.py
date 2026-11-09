@@ -66,6 +66,10 @@ def main():
     pixels_total=0
     pixels_colored=0
     tiles_with_gaps=0
+    province_pixels=0
+    missing_province_pixels=0
+    coverage_by_zoom={}
+    worst_tiles=[]
     with sqlite3.connect(str(slope)) as db:
         table,geom=db.execute("SELECT table_name,column_name FROM gpkg_geometry_columns LIMIT 1").fetchone()
         cols=db.execute('PRAGMA table_info("'+table.replace('"','""')+'")').fetchall()
@@ -99,14 +103,27 @@ def main():
                         clipped=projected.intersection(tile).intersection(boundary)
                         if clipped.is_empty:continue
                         paint(draw,clipped,tile.bounds,PALETTE[cls]);painted+=1
+                    # Compare coverage strictly inside the provincial boundary.
+                    # Transparent pixels outside the province are not NoData.
+                    boundary_mask=Image.new("RGBA",(256,256),(0,0,0,0))
+                    paint(ImageDraw.Draw(boundary_mask),boundary.intersection(tile),tile.bounds,(255,255,255,255))
+                    inside=boundary_mask.getchannel("A").point(lambda v: 255 if v else 0)
+                    covered=image.getchannel("A").point(lambda v: 255 if v else 0)
+                    missing=ImageChops.subtract(inside,covered)
+                    n_inside=inside.histogram()[255]
+                    n_missing=missing.histogram()[255]
+                    province_pixels+=n_inside
+                    missing_province_pixels+=n_missing
+                    stats=coverage_by_zoom.setdefault(str(z),{"province_pixels":0,"unclassified_pixels":0,"tiles":0})
+                    stats["province_pixels"]+=n_inside
+                    stats["unclassified_pixels"]+=n_missing
+                    stats["tiles"]+=1
+                    if n_missing:tiles_with_gaps+=1
+                    if n_inside and n_missing:
+                        worst_tiles.append((n_missing/n_inside,z,x,y,n_missing,n_inside))
+                        worst_tiles.sort(reverse=True)
+                        del worst_tiles[15:]
                     if painted:
-                        # Report transparency; it may be true NoData, not a rendering bug.
-                        # Count transparency only in the tile image (not satellite basemap).
-                        alpha=image.getchannel("A")
-                        colored=sum(alpha.histogram()[1:])
-                        pixels_total+=256*256
-                        pixels_colored+=colored
-                        if colored<256*256:tiles_with_gaps+=1
                         out=io.BytesIO();image.save(out,format="PNG",optimize=True)
                         r2.put_object(Bucket=BUCKET,Key=f"{prefix}{z}/{x}/{y}.png",Body=out.getvalue(),ContentType="image/png")
                     if count%50==0:print("TILES",count,"zoom",z,flush=True)
@@ -117,8 +134,10 @@ def main():
         total_area=prepared.get("total_classified_ha",0)
     except Exception:
         statistics=[];total_area=0
-    print("PIXEL_COVERAGE",json.dumps({"tiles_with_transparency":tiles_with_gaps,"colored_pixel_fraction":round(pixels_colored/max(pixels_total,1),4)}),flush=True)
-    metadata={"tiles_with_transparency":tiles_with_gaps,"colored_pixel_fraction":round(pixels_colored/max(pixels_total,1),4),"statistics":statistics,"total_classified_ha":total_area,"province_fid":args.province_fid,"min_zoom":args.min_zoom,"max_zoom":args.max_zoom,
+    diagnostic={"province_pixels":province_pixels,"unclassified_pixels":missing_province_pixels,"unclassified_pct":round(100*missing_province_pixels/max(province_pixels,1),2),"tiles_with_unclassified_pixels":tiles_with_gaps,"by_zoom":coverage_by_zoom,"worst_tiles":[{"z":z,"x":x,"y":y,"unclassified_pct":round(100*frac,2),"unclassified_pixels":miss,"province_pixels":inside} for frac,z,x,y,miss,inside in worst_tiles],"note":"Unclassified pixels may represent source NoData, missing classifications, or rasterization artifacts; no values are fabricated."}
+    print("PROVINCE_COVERAGE_DIAGNOSTICS",json.dumps(diagnostic),flush=True)
+    r2.put_object(Bucket=BUCKET,Key=prefix+"coverage-diagnostics.json",Body=json.dumps(diagnostic).encode(),ContentType="application/json")
+    metadata={"unclassified_pct":diagnostic["unclassified_pct"],"tiles_with_transparency":tiles_with_gaps,"colored_pixel_fraction":round(pixels_colored/max(pixels_total,1),4),"statistics":statistics,"total_classified_ha":total_area,"province_fid":args.province_fid,"min_zoom":args.min_zoom,"max_zoom":args.max_zoom,
               "bounds_3857":list(boundary.bounds),"tiles_checked":count,"rendering":"original-unsimplified"}
     r2.put_object(Bucket=BUCKET,Key=prefix+"metadata.json",Body=json.dumps(metadata).encode(),ContentType="application/json")
     print("READY",json.dumps(metadata),flush=True)
