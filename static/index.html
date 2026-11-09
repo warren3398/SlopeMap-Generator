@@ -28,7 +28,7 @@ select{width:100%;padding:12px;border:1px solid #b9cdc0;border-radius:9px;backgr
 </main>
 <script>
 const $=id=>document.getElementById(id),buttons=[...document.querySelectorAll('[data-format]')];let regions=[],inventory=[],selectedLevel=null,selectedFid=null;
-const groups={Luzon:['NCR','CAR','Region I','Region II','Region III','Region IV-A','MIMAROPA','Region V'],Visayas:['Region VI','Region VII','Region VIII'],Mindanao:['Region IX','Region X','Region XI','Region XII','Region XIII','BARMM']};
+const groups={Luzon:['NCR','National Capital Region','CAR','Cordillera','Region I','Region II','Region III','Region IV-A','MIMAROPA','Region V'],Visayas:['Region VI','Region VII','Region VIII'],Mindanao:['Region IX','Region X','Region XI','Region XII','Region XIII','BARMM','Bangsamoro']};
 function setStatus(msg,kind=''){const el=$('status');el.textContent=msg;el.className='status '+kind}
 function fill(el,items,placeholder){el.replaceChildren(new Option(placeholder,''),...items.map(x=>new Option(x.name,x.code)))}
 function resetBelow(level){const ids=['region','province','municipality','barangay'],i=ids.indexOf(level);for(let j=i+1;j<ids.length;j++){const id=ids[j];$(id).replaceChildren(new Option(id==='municipality'?'Whole province':id==='barangay'?'All barangays':'Select above',''));$(id).disabled=true}} 
