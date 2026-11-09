@@ -47,6 +47,7 @@ def build_export(a):
     boundary_frame=pyogrio.read_dataframe(boundary_path,fids=[a.fid])
     if boundary_frame.empty:raise ValueError("Boundary FID not found")
     boundary=valid_poly(boundary_frame.geometry.iloc[0])
+    boundary_label=" / ".join(str(boundary_frame.iloc[0][c]) for c in ("ADM2_EN","ADM3_EN","ADM4_EN") if c in boundary_frame.columns and boundary_frame.iloc[0][c] is not None) or f"{a.level} FID {a.fid}"
     if boundary_frame.crs is None:raise ValueError("Boundary dataset has no CRS")
     slope_path=local_file("slope")
     info=pyogrio.read_info(slope_path);source_crs=info["crs"]
@@ -65,8 +66,15 @@ def build_export(a):
     candidates=candidates.to_crs(6933)
     candidates["area_ha"]=candidates.geometry.area/10000
     candidates=candidates.to_crs(4326)
+    boundary_ha=float(gpd.GeoSeries([boundary],crs=boundary_frame.crs).to_crs(6933).area.iloc[0]/10000)
     stats=candidates.groupby("slope_class").area_ha.sum().to_dict()
     total=float(sum(stats.values()))
+    coverage_pct=total/boundary_ha*100 if boundary_ha else 0
+    print("COVERAGE_QA "+json.dumps({"level":a.level,"fid":a.fid,"name":boundary_label,"boundary_ha":round(boundary_ha,3),"classified_ha":round(total,3),"coverage_pct":round(coverage_pct,2),"features":len(candidates)}),flush=True)
+    # A successful export must not silently publish a nearly empty slope map.
+    # Report the mismatch before uploading any JPEG or ZIP.
+    if coverage_pct<50:
+        raise ValueError(f"Insufficient slope coverage for {boundary_label}: {coverage_pct:.2f}% ({total:.2f}/{boundary_ha:.2f} ha). Export not published.")
     candidates["area_ha"]=candidates.area_ha.round(3)
     candidates=candidates[["slope_class","area_ha","geometry"]]
     # Create GIS package in a temporary workspace; shapefile fields remain portable.
@@ -78,7 +86,7 @@ def build_export(a):
             for ext in (".shp",".shx",".dbf",".prj",".cpg"):
                 file=td/("slope"+ext)
                 if file.exists():z.write(file,file.name)
-        r2.upload_file(str(zip_path),BUCKET,key+"slope.zip",ExtraArgs={"ContentType":"application/zip"})
+        # Upload both artifacts only after map and ZIP generation completes.
         # Layout: map panel + fixed-width information panel; no PDF export.
         fig=plt.figure(figsize=(16,10),dpi=180,facecolor="white")
         ax=fig.add_axes([.035,.08,.67,.84])
@@ -115,8 +123,9 @@ def build_export(a):
         panel.text(.5,.092,"Map Information",color="white",ha="center",va="center",fontsize=12,fontweight="bold",transform=panel.transAxes)
         panel.text(.03,.035,f"CRS: WGS 84  |  Classified area: {total:,.2f} ha",fontsize=8,transform=panel.transAxes)
         jpg=td/"slope.jpg";fig.savefig(jpg,format="jpg",dpi=180,bbox_inches="tight",pad_inches=.12);plt.close(fig)
+        r2.upload_file(str(zip_path),BUCKET,key+"slope.zip",ExtraArgs={"ContentType":"application/zip"})
         r2.upload_file(str(jpg),BUCKET,key+"slope.jpg",ExtraArgs={"ContentType":"image/jpeg"})
-    print("READY",json.dumps({"level":a.level,"fid":a.fid,"features":len(candidates),"area_ha":round(total,3),"formats":["jpeg","zip"],"prefix":key}),flush=True)
+    print("READY",json.dumps({"level":a.level,"fid":a.fid,"name":boundary_label,"features":len(candidates),"boundary_ha":round(boundary_ha,3),"coverage_pct":round(coverage_pct,2),"area_ha":round(total,3),"formats":["jpeg","zip"],"prefix":key}),flush=True)
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("--level",choices=["province","municipality","barangay"],required=True)
