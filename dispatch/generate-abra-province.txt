@@ -1,1 +1,3 @@
 One-time trigger: generate province FID 66 (Abra) using the existing slope source only.
+
+Regenerate Abra after restoring the administrative boundary outline in the JPEG layout.
