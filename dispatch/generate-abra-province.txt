@@ -5,3 +5,5 @@ Regenerate Abra after restoring the administrative boundary outline in the JPEG 
 Regenerate Abra after fixing province display name to use ADM2ALTEN fallback.
 
 Retry after fixing boundary geometry plot variable.
+
+Regenerate using redesigned landscape layout with aligned legend and summary panel.
