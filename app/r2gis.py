@@ -234,6 +234,46 @@ def province_tile(province_id:int,z:int,x:int,y:int):
     return StreamingResponse(chunks(),media_type="image/png",
                              headers={"Cache-Control":"public,max-age=86400"})
 
+# Pre-generated download catalog, following the NPAAAD-SAFDZ Map Downloader pattern.
+# Keys: exports/slope/{province|municipality|barangay}/{boundary_fid}/slope.{jpg|zip}
+@router.get("/api/slope-inventory")
+def slope_inventory():
+    storage=client()
+    items=[]
+    token=None
+    while True:
+        args={"Bucket":BUCKET,"Prefix":"exports/slope/","MaxKeys":1000}
+        if token:args["ContinuationToken"]=token
+        page=storage.list_objects_v2(**args)
+        for obj in page.get("Contents",[]):
+            import re
+            m=re.fullmatch(r"exports/slope/(province|municipality|barangay)/(\\d+)/slope\\.(jpg|zip)",obj["Key"])
+            if m and obj.get("Size",0)>0:
+                items.append({"level":m.group(1),"fid":m.group(2),"format":m.group(3),"size":obj["Size"]})
+        if not page.get("IsTruncated"):break
+        token=page.get("NextContinuationToken")
+    return {"items":items,"formats":["jpeg","shapefile_zip"],"pdf":False}
+
+@router.get("/api/slope-download")
+def slope_download(level:str,fid:int,format:str):
+    if level not in ("province","municipality","barangay") or fid<0 or format not in ("jpeg","zip"):
+        raise HTTPException(400,"Invalid slope export selection")
+    ext="jpg" if format=="jpeg" else "zip"
+    key=f"exports/slope/{level}/{fid}/slope.{ext}"
+    try:obj=client().get_object(Bucket=BUCKET,Key=key)
+    except Exception as exc:
+        if getattr(exc,"response",{}).get("Error",{}).get("Code") in ("NoSuchKey","404","NotFound"):
+            raise HTTPException(404,"This slope export is not yet pre-generated.")
+        raise HTTPException(503,"Slope export storage is temporarily unavailable.")
+    filename=f"slope_{level}_{fid}.{ext}"
+    mime="image/jpeg" if ext=="jpg" else "application/zip"
+    def chunks():
+        try:
+            for chunk in obj["Body"].iter_chunks(chunk_size=1024*1024):
+                if chunk:yield chunk
+        finally:obj["Body"].close()
+    return StreamingResponse(chunks(),media_type=mime,headers={"Content-Disposition":f'attachment; filename="{filename}"',"Content-Length":str(obj["ContentLength"]),"Cache-Control":"no-store"})
+
 @router.post("/generate")
 async def generate(boundary_file:UploadFile|None=File(None),boundary_code:str|None=Form(None)):
     if bool(boundary_file)==bool(boundary_code):raise HTTPException(400,"Upload parcel or select administrative boundary")
