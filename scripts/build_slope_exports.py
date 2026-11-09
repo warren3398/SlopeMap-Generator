@@ -106,43 +106,56 @@ def build_export(a):
                 if file.exists():z.write(file,file.name)
         # Upload both artifacts only after map and ZIP generation completes.
         # Layout: map panel + fixed-width information panel; no PDF export.
+        # Clean landscape map sheet: generous map frame, aligned information
+        # panel, compact legend and readable summary with consistent spacing.
         fig=plt.figure(figsize=(16,10),dpi=180,facecolor="white")
-        ax=fig.add_axes([.035,.08,.67,.84])
-        panel=fig.add_axes([.735,.08,.235,.84]);panel.axis("off")
+        fig.patch.set_edgecolor("#b8c8bf");fig.patch.set_linewidth(1.0)
+        ax=fig.add_axes([.045,.105,.615,.79])
+        panel=fig.add_axes([.70,.085,.265,.83]);panel.axis("off")
         for cls in "ABCDEF":
             part=candidates[candidates.slope_class==cls]
-            if not part.empty:part.plot(ax=ax,color=COLORS[cls],edgecolor="none",zorder=2)
-        # Draw the selected administrative boundary above every class polygon.
-        # The dissolved outline was missing from the previous layout.
-        gpd.GeoSeries([boundary],crs=boundary_frame.crs).to_crs(4326).boundary.plot(ax=ax,color="#26352d",linewidth=0.85,zorder=20)
-        ax.set_aspect("equal");ax.set_axis_off();ax.set_title("SLOPE CLASSIFICATION MAP",fontsize=17,fontweight="bold",pad=12)
+            if not part.empty:
+                part.plot(ax=ax,color=COLORS[cls],edgecolor="none",zorder=2)
         boundary_ll=gpd.GeoSeries([boundary],crs=boundary_frame.crs).to_crs(4326)
+        boundary_ll.boundary.plot(ax=ax,color="#26352d",linewidth=1.0,zorder=20)
         bounds=boundary_ll.total_bounds
-        ax.set_xlim(bounds[0],bounds[2]);ax.set_ylim(bounds[1],bounds[3])
-        ax.add_patch(plt.Rectangle((.94,.90),.045,.075,transform=ax.transAxes,fill=False,lw=1.2))
-        ax.text(.962,.938,"N\n▲",transform=ax.transAxes,ha="center",va="center",fontsize=12,fontweight="bold")
-        panel.add_patch(plt.Rectangle((0, .91),1,.09,color="#07552f",transform=panel.transAxes))
-        panel.text(.5,.955,"SLOPE MAP",color="white",ha="center",va="center",fontsize=18,fontweight="bold",transform=panel.transAxes)
-        panel.text(.5,.875,boundary_label,ha="center",fontsize=14,fontweight="bold",transform=panel.transAxes)
+        dx=max(bounds[2]-bounds[0],0.0001);dy=max(bounds[3]-bounds[1],0.0001)
+        ax.set_xlim(bounds[0]-dx*.035,bounds[2]+dx*.035)
+        ax.set_ylim(bounds[1]-dy*.035,bounds[3]+dy*.035)
+        ax.set_aspect("equal");ax.set_axis_off()
+        ax.set_title("SLOPE CLASSIFICATION MAP",loc="left",fontsize=18,fontweight="bold",pad=17,color="#17231c")
+        ax.add_patch(plt.Rectangle((.925,.885),.055,.09,transform=ax.transAxes,fill=False,edgecolor="#26352d",lw=1.2,zorder=30))
+        ax.text(.952,.93,"N\n▲",transform=ax.transAxes,ha="center",va="center",fontsize=12,fontweight="bold",color="#17231c",zorder=31)
+        # Right information panel
+        panel.add_patch(plt.Rectangle((0,.91),1,.09,color="#07552f",transform=panel.transAxes))
+        panel.text(.5,.955,"SLOPE MAP",color="white",ha="center",va="center",fontsize=19,fontweight="bold",transform=panel.transAxes)
+        panel.text(.5,.865,boundary_label.upper(),ha="center",va="center",fontsize=16,fontweight="bold",color="#17231c",transform=panel.transAxes)
         panel.add_patch(plt.Rectangle((0,.79),1,.045,color="#07552f",transform=panel.transAxes))
-        panel.text(.5,.812,"Legend",color="white",ha="center",va="center",fontsize=13,fontweight="bold",transform=panel.transAxes)
-        y=.755
-        handles=[Patch(facecolor=COLORS[c],label=f"{c}   {RANGES[c]}   {NAMES[c]}") for c in "ABCDEF"]
-        panel.legend(handles=handles,loc="upper left",bbox_to_anchor=(.02,.785),frameon=False,fontsize=9,labelspacing=1.05)
-        panel.add_patch(plt.Rectangle((0,.43),1,.045,color="#07552f",transform=panel.transAxes))
-        panel.text(.5,.452,"Slope Class Summary",color="white",ha="center",va="center",fontsize=12,fontweight="bold",transform=panel.transAxes)
-        rows=[["Class","Area (ha)","Area (%)"]]
-        for c in "ABCDEF":rows.append([c,f"{stats.get(c,0):,.2f}",f"{stats.get(c,0)/total*100 if total else 0:.2f}"])
+        panel.text(.5,.812,"SLOPE CLASS LEGEND",color="white",ha="center",va="center",fontsize=11,fontweight="bold",transform=panel.transAxes)
+        # Explicit legend rows keep class, range and description aligned.
+        for idx,c in enumerate("ABCDEF"):
+            yy=.755-idx*.043
+            panel.add_patch(plt.Rectangle((.035,yy-.012),.055,.022,color=COLORS[c],transform=panel.transAxes,clip_on=False))
+            panel.text(.12,yy,f"{c}   {RANGES[c]}",ha="left",va="center",fontsize=9.2,fontweight="bold",color="#17231c",transform=panel.transAxes)
+            panel.text(.49,yy,NAMES[c],ha="left",va="center",fontsize=8.7,color="#34443a",transform=panel.transAxes)
+        panel.add_patch(plt.Rectangle((0,.465),1,.043,color="#07552f",transform=panel.transAxes))
+        panel.text(.5,.486,"SLOPE CLASS SUMMARY",color="white",ha="center",va="center",fontsize=11,fontweight="bold",transform=panel.transAxes)
+        rows=[["CLASS","AREA (HA)","AREA (%)"]]
+        for c in "ABCDEF":
+            rows.append([c,f"{stats.get(c,0):,.2f}",f"{stats.get(c,0)/total*100 if total else 0:.2f}"])
         rows.append(["TOTAL",f"{total:,.2f}","100.00"])
-        table=panel.table(cellText=rows,cellLoc="center",bbox=[0,.15,1,.27],colWidths=[.2,.42,.38])
+        table=panel.table(cellText=rows,cellLoc="center",bbox=[0,.16,1,.285],colWidths=[.2,.42,.38])
         table.auto_set_font_size(False);table.set_fontsize(9)
         for (ri,ci),cell in table.get_celld().items():
-            cell.set_edgecolor("#cbd8d0")
-            if ri==0:cell.set_facecolor("#eaf1ec");cell.set_text_props(weight="bold")
-            if ri==len(rows)-1:cell.set_text_props(weight="bold")
-        panel.add_patch(plt.Rectangle((0,.06),1,.065,color="#07552f",transform=panel.transAxes))
-        panel.text(.5,.092,"Map Information",color="white",ha="center",va="center",fontsize=12,fontweight="bold",transform=panel.transAxes)
-        panel.text(.03,.035,f"CRS: WGS 84  |  Classified area: {total:,.2f} ha",fontsize=8,transform=panel.transAxes)
+            cell.set_edgecolor("#cbd8d0");cell.set_linewidth(.7)
+            if ri==0:
+                cell.set_facecolor("#eaf1ec");cell.set_text_props(weight="bold",color="#17231c")
+            elif ri==len(rows)-1:
+                cell.set_facecolor("#f1f5f2");cell.set_text_props(weight="bold")
+            else:cell.set_facecolor("white")
+        panel.add_patch(plt.Rectangle((0,.065),1,.065,color="#07552f",transform=panel.transAxes))
+        panel.text(.5,.097,"MAP INFORMATION",color="white",ha="center",va="center",fontsize=10.5,fontweight="bold",transform=panel.transAxes)
+        panel.text(.02,.035,f"CRS: WGS 84  |  Classified area: {total:,.2f} ha",fontsize=8.2,color="#34443a",transform=panel.transAxes)
         jpg=td/"slope.jpg";fig.savefig(jpg,format="jpg",dpi=180,bbox_inches="tight",pad_inches=.12);plt.close(fig)
         r2.upload_file(str(zip_path),BUCKET,key+"slope.zip",ExtraArgs={"ContentType":"application/zip"})
         r2.upload_file(str(jpg),BUCKET,key+"slope.jpg",ExtraArgs={"ContentType":"image/jpeg"})
