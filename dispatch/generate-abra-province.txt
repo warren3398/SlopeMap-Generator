@@ -7,3 +7,5 @@ Regenerate Abra after fixing province display name to use ADM2ALTEN fallback.
 Retry after fixing boundary geometry plot variable.
 
 Regenerate using redesigned landscape layout with aligned legend and summary panel.
+
+Regenerate Abra with centered map title and framed map sheet.
