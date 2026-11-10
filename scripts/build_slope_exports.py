@@ -110,7 +110,11 @@ def build_export(a):
         # panel, compact legend and readable summary with consistent spacing.
         fig=plt.figure(figsize=(16,10),dpi=180,facecolor="white")
         fig.patch.set_edgecolor("#b8c8bf");fig.patch.set_linewidth(1.0)
-        ax=fig.add_axes([.045,.105,.615,.79])
+        # Fixed printable sheet border and dedicated map-frame border.
+        fig.add_artist(plt.Rectangle((.012,.018),.976,.964,transform=fig.transFigure,fill=False,edgecolor="#344a3e",linewidth=1.35,zorder=100))
+        fig.add_artist(plt.Rectangle((.035,.075),.635,.825,transform=fig.transFigure,fill=False,edgecolor="#81988a",linewidth=1.15,zorder=90))
+        fig.text(.3525,.928,"SLOPE CLASSIFICATION MAP",ha="center",va="center",fontsize=18,fontweight="bold",color="#17231c")
+        ax=fig.add_axes([.065,.12,.575,.745])
         panel=fig.add_axes([.70,.085,.265,.83]);panel.axis("off")
         for cls in "ABCDEF":
             part=candidates[candidates.slope_class==cls]
@@ -123,9 +127,9 @@ def build_export(a):
         ax.set_xlim(bounds[0]-dx*.035,bounds[2]+dx*.035)
         ax.set_ylim(bounds[1]-dy*.035,bounds[3]+dy*.035)
         ax.set_aspect("equal");ax.set_axis_off()
-        ax.set_title("SLOPE CLASSIFICATION MAP",loc="left",fontsize=18,fontweight="bold",pad=17,color="#17231c")
-        ax.add_patch(plt.Rectangle((.925,.885),.055,.09,transform=ax.transAxes,fill=False,edgecolor="#26352d",lw=1.2,zorder=30))
-        ax.text(.952,.93,"N\n▲",transform=ax.transAxes,ha="center",va="center",fontsize=12,fontweight="bold",color="#17231c",zorder=31)
+        # North arrow anchored to the framed map panel rather than the geometry.
+        fig.add_artist(plt.Rectangle((.614,.793),.035,.072,transform=fig.transFigure,fill=False,edgecolor="#26352d",lw=1.1,zorder=95))
+        fig.text(.6315,.829,"N\n▲",ha="center",va="center",fontsize=11,fontweight="bold",color="#17231c",zorder=96)
         # Right information panel
         panel.add_patch(plt.Rectangle((0,.91),1,.09,color="#07552f",transform=panel.transAxes))
         panel.text(.5,.955,"SLOPE MAP",color="white",ha="center",va="center",fontsize=19,fontweight="bold",transform=panel.transAxes)
@@ -156,7 +160,7 @@ def build_export(a):
         panel.add_patch(plt.Rectangle((0,.065),1,.065,color="#07552f",transform=panel.transAxes))
         panel.text(.5,.097,"MAP INFORMATION",color="white",ha="center",va="center",fontsize=10.5,fontweight="bold",transform=panel.transAxes)
         panel.text(.02,.035,f"CRS: WGS 84  |  Classified area: {total:,.2f} ha",fontsize=8.2,color="#34443a",transform=panel.transAxes)
-        jpg=td/"slope.jpg";fig.savefig(jpg,format="jpg",dpi=180,bbox_inches="tight",pad_inches=.12);plt.close(fig)
+        jpg=td/"slope.jpg";fig.savefig(jpg,format="jpg",dpi=180,facecolor="white");plt.close(fig)
         r2.upload_file(str(zip_path),BUCKET,key+"slope.zip",ExtraArgs={"ContentType":"application/zip"})
         r2.upload_file(str(jpg),BUCKET,key+"slope.jpg",ExtraArgs={"ContentType":"image/jpeg"})
     print("READY",json.dumps({"level":a.level,"fid":a.fid,"name":boundary_label,"features":len(candidates),"boundary_ha":round(boundary_ha,3),"coverage_pct":round(coverage_pct,2),"area_ha":round(total,3),"formats":["jpeg","zip"],"prefix":key}),flush=True)
