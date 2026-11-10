@@ -92,7 +92,9 @@ function drawGenerated(data){
  for(const f of features){const g=f.geometry;if(!g)continue;if(g.type==='Polygon')collect(g.coordinates,3);else if(g.type==='MultiPolygon')collect(g.coordinates,4)}
  const points=polys.flat().filter(p=>Array.isArray(p)&&typeof p[0]==='number');
  if(!points.length)throw Error('No drawable polygons');
- const xs=points.map(p=>p[0]),ys=points.map(p=>p[1]),minx=Math.min(...xs),maxx=Math.max(...xs),miny=Math.min(...ys),maxy=Math.max(...ys);
+ let minx=Infinity,maxx=-Infinity,miny=Infinity,maxy=-Infinity;
+ for(const p of points){const px=p[0],py=p[1];if(!Number.isFinite(px)||!Number.isFinite(py))continue;if(px<minx)minx=px;if(px>maxx)maxx=px;if(py<miny)miny=py;if(py>maxy)maxy=py}
+ if(!Number.isFinite(minx)||!Number.isFinite(miny))throw Error('Generated map contains no valid coordinates');
  const scale=Math.min(1080/Math.max(maxx-minx,1e-9),620/Math.max(maxy-miny,1e-9));
  const x=v=>60+(v-minx)*scale,y=v=>720-(v-miny)*scale;
  const colors={A:'#418a41',B:'#89b340',C:'#dde340',D:'#ffe240',E:'#ffa340',F:'#ff0000'};
