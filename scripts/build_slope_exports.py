@@ -183,13 +183,34 @@ def main():
     count=len(fids)
     end=min(a.start+a.limit,count)
     print(f"BATCH {a.level}: positions {a.start}..{end-1} of {count}; actual FIDs {fids[a.start:end]}",flush=True)
-    failures=[]
+    failures=[];unavailable=[];ready=0;skipped=0
+    unavailable_messages=("No slope polygons intersect this boundary","No classified slope polygons within selected boundary","Insufficient slope coverage")
     for fid in fids[a.start:end]:
         print(f"PROCESS {a.level}/{fid}",flush=True)
-        try:build_one(a.level,fid,a.overwrite)
+        try:
+            key=f"exports/slope/{a.level}/{fid}/"
+            if not a.overwrite:
+                r2=client()
+                try:
+                    r2.head_object(Bucket=BUCKET,Key=key+"slope.jpg")
+                    r2.head_object(Bucket=BUCKET,Key=key+"slope.zip")
+                    skipped+=1
+                    print(f"SKIP_EXISTING {a.level}/{fid}",flush=True)
+                    continue
+                except Exception:pass
+            build_one(a.level,fid,a.overwrite)
+            ready+=1
+        except ValueError as exc:
+            if any(str(exc).startswith(msg) for msg in unavailable_messages):
+                unavailable.append({"fid":fid,"reason":str(exc)})
+                print(f"NO_SOURCE_DATA {a.level}/{fid}: {exc}",flush=True)
+            else:
+                failures.append({"fid":fid,"error":str(exc)})
+                print(f"FAILED {a.level}/{fid}: {type(exc).__name__}: {exc}",flush=True)
         except Exception as exc:
             failures.append({"fid":fid,"error":str(exc)})
             print(f"FAILED {a.level}/{fid}: {type(exc).__name__}: {exc}",flush=True)
-    print("BATCH_SUMMARY "+json.dumps({"level":a.level,"start":a.start,"limit":a.limit,"failures":failures}),flush=True)
-    if failures:raise SystemExit(f"{len(failures)} exports failed; see BATCH_SUMMARY")
+    summary={"level":a.level,"start":a.start,"limit":a.limit,"ready":ready,"skipped_existing":skipped,"no_source_data":len(unavailable),"failed":len(failures),"unavailable":unavailable,"failures":failures}
+    print("BATCH_SUMMARY "+json.dumps(summary),flush=True)
+    if failures:raise SystemExit(f"{len(failures)} genuine processing errors; see BATCH_SUMMARY")
 if __name__=="__main__":main()
