@@ -217,12 +217,17 @@ def boundaries(level:str,parent_code:str|None=None):
         parent_key=next((c for c in ("ADM2_PCODE","PROV_PCODE","PROVINCE_CODE","PSGC_PROV") if c in parent_fields),None)
         muni_fields=list(info["fields"])
         child_key=next((c for c in ("ADM2_PCODE","PROV_PCODE","PROVINCE_CODE","PSGC_PROV") if c in muni_fields),None)
-        name_key=next((c for c in ("ADM3_EN","CITY_MUN","MUNICIPALITY","MUN_NAME","CITY_NAME","NAME_3") if c in muni_fields),None)
+        name_key=next((c for c in ("ADM3_EN","CITY_MUN","MUNICIPALITY","MUN_NAME","CITY_NAME","NAME_2","NAME_3") if c in muni_fields),None)
         if not name_key:raise HTTPException(422,"Municipality name field missing; available fields: "+", ".join(map(str,muni_fields)))
         if parent_key and child_key:
             parent_value=str(parent.iloc[0][parent_key]).strip()
             df=pyogrio.read_dataframe(source,columns=[name_key,child_key],read_geometry=False,fid_as_index=True)
             df=df[df[child_key].astype(str).str.strip()==parent_value]
+        elif "NAME_1" in muni_fields:
+            # GADM municipality layer: NAME_1 is the province, NAME_2 is the municipality.
+            province_name=str(parent.iloc[0][name_column(parent_fields,"province")]).strip().casefold()
+            df=pyogrio.read_dataframe(source,columns=[name_key,"NAME_1"],read_geometry=False,fid_as_index=True)
+            df=df[df["NAME_1"].astype(str).str.strip().str.casefold()==province_name]
         else:
             # Fallback to geometry when administrative codes are unavailable.
             geom=selected_geometry(parent_code)
@@ -245,12 +250,17 @@ def boundaries(level:str,parent_code:str|None=None):
         key_candidates=("ADM3_PCODE","MUN_PCODE","CITY_MUN_CODE","MUNICIPALITY_CODE","PSGC_MUN","ADM3_CODE")
         parent_key=next((c for c in key_candidates if c in parent_fields),None)
         child_key=next((c for c in key_candidates if c in child_fields),None)
-        name_key=next((c for c in ("ADM4_EN","BARANGAY","BRGY_NAME","BRGY","NAME_4","NAME_3") if c in child_fields),None)
+        name_key=next((c for c in ("ADM4_EN","BARANGAY","BRGY_NAME","BRGY","NAME_3","NAME_4") if c in child_fields),None)
         if name_key is None:raise HTTPException(422,"Barangay name field missing")
         if parent_key and child_key:
             parent_value=str(parent.iloc[0][parent_key]).strip()
             df=pyogrio.read_dataframe(source,columns=[name_key,child_key],read_geometry=False,fid_as_index=True)
             df=df[df[child_key].astype(str).str.strip()==parent_value]
+            return sorted([{"code":"barangay:"+str(fid),"name":str(row[name_key])} for fid,row in df.iterrows() if row[name_key] is not None and str(row[name_key]).strip()],key=lambda x:x["name"])
+        if "GID_2" in parent_fields and "GID_2" in child_fields:
+            parent_value=str(parent.iloc[0]["GID_2"]).strip()
+            df=pyogrio.read_dataframe(source,columns=[name_key,"GID_2"],read_geometry=False,fid_as_index=True)
+            df=df[df["GID_2"].astype(str).str.strip()==parent_value]
             return sorted([{"code":"barangay:"+str(fid),"name":str(row[name_key])} for fid,row in df.iterrows() if row[name_key] is not None and str(row[name_key]).strip()],key=lambda x:x["name"])
     if parent_code:
         geom=selected_geometry(parent_code)
