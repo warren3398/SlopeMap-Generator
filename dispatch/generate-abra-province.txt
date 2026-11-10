@@ -9,3 +9,5 @@ Retry after fixing boundary geometry plot variable.
 Regenerate using redesigned landscape layout with aligned legend and summary panel.
 
 Regenerate Abra with centered map title and framed map sheet.
+
+Regenerate with high-contrast outline around the actual Abra province shape.
