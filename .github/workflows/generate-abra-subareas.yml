@@ -1,0 +1,36 @@
+name: Generate Abra municipality and barangay exports
+on:
+  push:
+    paths:
+      - "dispatch/generate-abra-subareas.txt"
+  workflow_dispatch:
+jobs:
+  abra-subareas:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        level: [municipality, barangay]
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install GIS dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install matplotlib
+      - name: Generate and upload verified Abra subarea exports
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$R2_ACCOUNT_ID"
+          test -n "$R2_ACCESS_KEY_ID"
+          test -n "$R2_SECRET_ACCESS_KEY"
+          python -u -m scripts.build_abra_exports --level ${{ matrix.level }} --shard ${{ matrix.shard }} --shards 4
