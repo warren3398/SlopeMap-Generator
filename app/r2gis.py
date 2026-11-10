@@ -418,6 +418,12 @@ async def generate(boundary_file:UploadFile|None=File(None),boundary_code:str|No
         sql=("SELECT t."+ident(geom_name)+",t."+ident(field)+" FROM "+ident(table_name)+
              " t JOIN "+ident(rtree_name)+" r ON t."+ident(pk)+"=r.id"+
              " WHERE r.minx<=? AND r.maxx>=? AND r.miny<=? AND r.maxy>=?")
+        # Fast extent check avoids presenting a normal no-coverage case as a generic failure.
+        source_extent=db.execute("SELECT MIN(minx),MIN(miny),MAX(maxx),MAX(maxy) FROM "+ident(rtree_name)).fetchone()
+        if source_extent and all(v is not None for v in source_extent):
+            sx0,sy0,sx1,sy1=source_extent
+            if bounds[2]<sx0 or bounds[0]>sx1 or bounds[3]<sy0 or bounds[1]>sy1:
+                raise HTTPException(422,"No slope data available for this selected area. The current source GeoPackage covers only part of Northern Luzon. Select an area within the source coverage.")
         cursor=db.execute(sql,(bounds[2],bounds[0],bounds[3],bounds[1]))
         while True:
             if time.monotonic()-started>85:
@@ -459,6 +465,8 @@ async def generate(boundary_file:UploadFile|None=File(None),boundary_code:str|No
                 feats.append({"type":"Feature","properties":{"slope_class":cls,"area_ha":round(area,3)},"geometry":geometry})
     finally:
         db.close()
+    if not feats:
+        raise HTTPException(422,"No slope polygons intersect this selected boundary in the current source GeoPackage. This area is outside the available slope coverage.")
     return {"type":"FeatureCollection","features":feats,"statistics":[{"slope_class":k,"area_ha":round(v,3)} for k,v in sorted(stats.items())],"total_classified_ha":round(sum(stats.values()),3),"geometry_generalized":province_view}
 
 @router.post("/download/shapefile")
