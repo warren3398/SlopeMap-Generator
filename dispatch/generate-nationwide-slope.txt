@@ -1,1 +1,3 @@
 Start nationwide pilot batches for province, municipality, and barangay (20 records per level). Existing source only; skip invalid coverage; review failures before scaling.
+
+Run next nationwide batches (positions 20-39 per level), skip no-source areas and log summary.
