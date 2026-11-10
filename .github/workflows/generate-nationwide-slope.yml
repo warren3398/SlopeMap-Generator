@@ -29,13 +29,13 @@ jobs:
       matrix:
         include:
           - level: province
-            start: 0
+            start: 20
             limit: 20
           - level: municipality
-            start: 0
+            start: 20
             limit: 20
           - level: barangay
-            start: 0
+            start: 20
             limit: 20
     steps:
       - uses: actions/checkout@v4
