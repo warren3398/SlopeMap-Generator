@@ -59,9 +59,26 @@ function update(){const item=selected(),formats=item?.formats||[];buttons.forEac
 async function inventoryLoad(){try{const r=await fetch('/api/slope-inventory',{cache:'no-store'}),d=await readJson(r,'R2 export inventory');if(!r.ok)throw Error(d.detail||'R2 inventory unavailable');inventory=d.items||[];update()}catch(e){setStatus('Cannot load export inventory: '+e.message,'error')}}
 $('island').addEventListener('change',()=>{resetBelow('region');const group=$('island').value;const list=regionsFor(group);fill($('region'),list,'Select region');$('region').disabled=!group;if(group&&!list.length)setStatus('Region codes could not be matched to the boundary dataset. Please reload the page.','error');else update()});
 $('region').addEventListener('change',async()=>{resetBelow('region');selectedLevel=selectedFid=null;update();if(!$('region').value)return;try{setStatus('Loading provinces…','loading');const a=await loadBoundaries('province',$('region').value);fill($('province'),a,'Select province');$('province').disabled=false;setStatus('Select a province to continue.')}catch(e){setStatus(e.message,'error')}});
-$('province').addEventListener('change',async()=>{resetBelow('province');selectedLevel=$('province').value?'province':null;selectedFid=$('province').value.split(':')[1]||null;await loadChildren('municipality',$('province').value);update()});
-async function loadChildren(level,parent){if(!parent)return;try{const a=await loadBoundaries(level,parent);fill($(level),a,level==='municipality'?'Whole province':'All barangays');$(level).disabled=false}catch(e){setStatus(e.message,'error')}}
-$('municipality').addEventListener('change',async()=>{resetBelow('municipality');if($('municipality').value){selectedLevel='municipality';selectedFid=$('municipality').value.split(':')[1]||null;await loadChildren('barangay',$('municipality').value)}else{selectedLevel='province';selectedFid=$('province').value.split(':')[1]||null}update()});
+$('province').addEventListener('change',async()=>{resetBelow('province');selectedLevel=$('province').value?'province':null;selectedFid=$('province').value.split(':')[1]||null;const loaded=await loadChildren('municipality',$('province').value);if(loaded)update()});
+async function loadChildren(level,parent){
+  if(!parent)return false;
+  const el=$(level),label=level==='municipality'?'Whole province':'All barangays';
+  el.replaceChildren(new Option('Loading '+(level==='municipality'?'municipalities':'barangays')+'…',''));
+  el.disabled=true;
+  try{
+    const a=await loadBoundaries(level,parent);
+    fill(el,a,label);
+    el.disabled=false;
+    if(!a.length){setStatus('No '+level+' records were found for the selected area.','waiting');return false}
+    return true;
+  }catch(e){
+    el.replaceChildren(new Option(label+' — unavailable',''));
+    el.disabled=true;
+    setStatus('Cannot load '+level+' dropdown: '+e.message,'error');
+    return false;
+  }
+}
+$('municipality').addEventListener('change',async()=>{resetBelow('municipality');if($('municipality').value){selectedLevel='municipality';selectedFid=$('municipality').value.split(':')[1]||null;const loaded=await loadChildren('barangay',$('municipality').value);if(loaded)update()}else{selectedLevel='province';selectedFid=$('province').value.split(':')[1]||null}update()});
 $('barangay').addEventListener('change',()=>{if($('barangay').value){selectedLevel='barangay';selectedFid=$('barangay').value.split(':')[1]||null}else if($('municipality').value){selectedLevel='municipality';selectedFid=$('municipality').value.split(':')[1]||null}else{selectedLevel='province';selectedFid=$('province').value.split(':')[1]||null}update()});
 buttons.forEach(b=>b.addEventListener('click',()=>{const item=selected();if(!item)return;setStatus('Starting download from Cloudflare R2…','loading');window.location.assign('/api/slope-download?level='+encodeURIComponent(item.level)+'&fid='+encodeURIComponent(item.fid)+'&format='+encodeURIComponent(b.dataset.format))}));
 async function progress(){try{const r=await fetch('/gis/preprocessing-status',{cache:'no-store'}),d=await readJson(r,'Preprocessing status');if(!r.ok)throw Error(d.detail||'Status unavailable');const ready=Number(d.ready_provinces||0),total=d.total_provinces===null?null:Number(d.total_provinces||0),pct=total?Math.min(100,Math.round(ready/total*1000)/10):0;$('progress-summary').textContent=total===null?ready+' province exports preprocessed':' '+ready+' / '+total+' provinces preprocessed ('+pct+'%)';$('progress-bar').style.width=total===null?'0%':pct+'%';$('progress-detail').textContent='Ready province datasets in R2. '+(d.empty_or_invalid||0)+' empty/invalid; '+(d.oversized||0)+' oversized. '+(d.note||'')}catch(e){$('progress-summary').textContent='Preprocessing status unavailable';$('progress-detail').textContent=e.message}}
