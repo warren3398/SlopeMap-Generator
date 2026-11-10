@@ -234,6 +234,24 @@ def boundaries(level:str,parent_code:str|None=None):
         if df.empty:raise HTTPException(404,"No municipalities found for this province")
         if name_key not in df.columns:raise HTTPException(422,"Municipality name column missing after filtering")
         return sorted([{"code":"municipality:"+str(fid),"name":str(row[name_key])} for fid,row in df.iterrows() if row[name_key] is not None],key=lambda x:x["name"])
+    if level=="barangay" and parent_code and parent_code.startswith("municipality:"):
+        # Prefer indexed administrative parent codes over expensive spatial
+        # intersection on the nationwide barangay geometry layer.
+        municipality_fid=int(parent_code.split(":",1)[1])
+        parent=pyogrio.read_dataframe(local_file("municipality"),fids=[municipality_fid])
+        if parent.empty:raise HTTPException(404,"Parent municipality not found")
+        parent_fields=list(parent.columns)
+        child_fields=list(info["fields"])
+        key_candidates=("ADM3_PCODE","MUN_PCODE","CITY_MUN_CODE","MUNICIPALITY_CODE","PSGC_MUN","ADM3_CODE")
+        parent_key=next((c for c in key_candidates if c in parent_fields),None)
+        child_key=next((c for c in key_candidates if c in child_fields),None)
+        name_key=next((c for c in ("ADM4_EN","BARANGAY","BRGY_NAME","BRGY","NAME_4","NAME_3") if c in child_fields),None)
+        if name_key is None:raise HTTPException(422,"Barangay name field missing")
+        if parent_key and child_key:
+            parent_value=str(parent.iloc[0][parent_key]).strip()
+            df=pyogrio.read_dataframe(source,columns=[name_key,child_key],read_geometry=False,fid_as_index=True)
+            df=df[df[child_key].astype(str).str.strip()==parent_value]
+            return sorted([{"code":"barangay:"+str(fid),"name":str(row[name_key])} for fid,row in df.iterrows() if row[name_key] is not None and str(row[name_key]).strip()],key=lambda x:x["name"])
     if parent_code:
         geom=selected_geometry(parent_code)
         bbox=tuple(gpd.GeoSeries([geom],crs=4326).to_crs(info["crs"]).total_bounds)
