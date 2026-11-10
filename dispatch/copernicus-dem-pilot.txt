@@ -1,0 +1,1 @@
+Run bounded Copernicus GLO-30 public tile availability inventory pilot, 15–17 N and 120–122 E. Do not download or publish DEM.
