@@ -370,33 +370,6 @@ def slope_download(level:str,fid:int,format:str):
 @router.post("/generate")
 async def generate(boundary_file:UploadFile|None=File(None),boundary_code:str|None=Form(None)):
     if bool(boundary_file)==bool(boundary_code):raise HTTPException(400,"Upload parcel or select administrative boundary")
-    if boundary_code and boundary_code.startswith("province:"):
-        province_id=boundary_code.split(":",1)[1]
-        if not province_id.isdigit():raise HTTPException(400,"Invalid province identifier")
-        key="prepared/provinces/v1/"+province_id+".geojson"
-        # Stream R2 GeoJSON rather than decoding and duplicating tens of MB in
-        # the small Render process. The browser receives the same JSON schema.
-        try:
-            obj=client().get_object(Bucket=BUCKET,Key=key)
-        except Exception as exc:
-            if getattr(exc,"response",{}).get("Error",{}).get("Code") in ("NoSuchKey","404","NotFound"):
-                raise HTTPException(503,"This province has not yet been preprocessed.")
-            raise HTTPException(503,"Cannot load prepared province: "+type(exc).__name__)
-        size=int(obj.get("ContentLength",0))
-        if size<=150:
-            obj["Body"].close()
-            raise HTTPException(422,"No slope polygons found for this province in the current source dataset.")
-        if size>50*1024*1024:
-            obj["Body"].close()
-            raise HTTPException(413,"Prepared province geometry exceeds the browser size limit; vector tiles are required.")
-        def stream_prepared():
-            try:
-                for chunk in obj["Body"].iter_chunks(chunk_size=256*1024):
-                    if chunk:yield chunk
-            finally:
-                obj["Body"].close()
-        return StreamingResponse(stream_prepared(),media_type="application/geo+json",
-                                 headers={"Cache-Control":"private, max-age=300"})
     if boundary_file:
         parcels=read_parcel(await boundary_file.read(),boundary_file.filename or "")
         boundary=unary_union([valid_poly(g) for g in parcels.geometry])
