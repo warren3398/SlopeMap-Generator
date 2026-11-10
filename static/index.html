@@ -109,9 +109,9 @@ $('generate-now').addEventListener('click',async()=>{
   const form=new FormData();form.append('boundary_code',code);
   const r=await fetch('/generate',{method:'POST',body:form});const d=await readJson(r,'Slope generation');
   if(!r.ok)throw Error(d.detail||'Slope generation failed');
-  if(!Array.isArray(d.features)||!d.features.length)throw Error('No slope polygons found for selected boundary');
+  if(!Array.isArray(d.features)||!d.features.length)throw Error('No slope data available for this selected area in the current GeoPackage.');
   generated=d;drawGenerated(d);setStatus('Slope map generated. Download JPEG or Shapefile ZIP below.','ready');
- }catch(e){setStatus('Generation failed: '+e.message,'error')}
+ }catch(e){setStatus(e.message.startsWith('No slope')?'Slope data unavailable: '+e.message:'Generation failed: '+e.message,e.message.startsWith('No slope')?'waiting':'error')}
  finally{$('generate-now').disabled=!selectedFid}
 });
 $('save-jpeg').addEventListener('click',()=>{if(!generated)return;const a=document.createElement('a');a.href=$('generated-map').toDataURL('image/jpeg',0.94);a.download='slope-map.jpg';a.click()});
