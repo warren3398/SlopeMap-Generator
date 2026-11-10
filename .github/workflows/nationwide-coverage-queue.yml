@@ -1,0 +1,70 @@
+name: Nationwide coverage scan and verified export queue
+on:
+  push:
+    paths:
+      - "dispatch/run-coverage-queue.txt"
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: Generate exports for READY areas
+        type: boolean
+        default: true
+      level:
+        description: Administrative level
+        type: choice
+        options: [all, province, municipality, barangay]
+        default: all
+jobs:
+  coverage-queue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - {level: province, shard: 0, shards: 1}
+          - {level: municipality, shard: 0, shards: 2}
+          - {level: municipality, shard: 1, shards: 2}
+          - {level: barangay, shard: 0, shards: 4}
+          - {level: barangay, shard: 1, shards: 4}
+          - {level: barangay, shard: 2, shards: 4}
+          - {level: barangay, shard: 3, shards: 4}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install GIS dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install matplotlib
+      - name: Scan coverage and process available exports
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          MATRIX_LEVEL: ${{ matrix.level }}
+          MATRIX_SHARD: ${{ matrix.shard }}
+          MATRIX_SHARDS: ${{ matrix.shards }}
+          REQUEST_LEVEL: ${{ inputs.level }}
+          REQUEST_EXECUTE: ${{ inputs.execute }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          test -n "$R2_ACCOUNT_ID"
+          test -n "$R2_ACCESS_KEY_ID"
+          test -n "$R2_SECRET_ACCESS_KEY"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$REQUEST_LEVEL" != "all" ] && [ "$REQUEST_LEVEL" != "$MATRIX_LEVEL" ]; then exit 0; fi
+          if [ "$EVENT_NAME" = "push" ] || [ "$REQUEST_EXECUTE" = "true" ]; then
+            python -u -m scripts.nationwide_coverage_queue --level "$MATRIX_LEVEL" --shard "$MATRIX_SHARD" --shards "$MATRIX_SHARDS" --execute
+          else
+            python -u -m scripts.nationwide_coverage_queue --level "$MATRIX_LEVEL" --shard "$MATRIX_SHARD" --shards "$MATRIX_SHARDS"
+          fi
+      - name: Upload coverage inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.level }}-${{ matrix.shard }}
+          path: coverage-${{ matrix.level }}-${{ matrix.shard }}.csv
+          if-no-files-found: ignore
