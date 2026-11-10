@@ -207,8 +207,20 @@ def boundaries(level:str,parent_code:str|None=None):
         if region_col is None:raise HTTPException(422,"Province dataset has no region-code field")
         df=pyogrio.read_dataframe(source,columns=[name_col,region_col],read_geometry=False,fid_as_index=True)
         def same_region(v):
-            return str(v or "").strip()==region_code
+            raw=str(v or "").strip().upper()
+            expected=region_code.strip().upper()
+            if raw==expected:return True
+            # Boundary datasets can use humanitarian PHxx codes rather than PSGC.
+            psgc_to_ph={"130000000":"PH13","140000000":"PH14","010000000":"PH01",
+              "020000000":"PH02","030000000":"PH03","040000000":"PH04",
+              "170000000":"PH17","050000000":"PH05","060000000":"PH06",
+              "180000000":"PH18","070000000":"PH07","080000000":"PH08",
+              "090000000":"PH09","100000000":"PH10","110000000":"PH11",
+              "120000000":"PH12","160000000":"PH16","190000000":"PH19"}
+            return raw==psgc_to_ph.get(expected)
         df=df[df[region_col].map(same_region)]
+        if df.empty:
+            raise HTTPException(404,"No provinces matched this region in the boundary catalog. Check administrative region codes.")
         return sorted([{"code":"province:"+str(fid),"name":str(row[name_col])} for fid,row in df.iterrows() if row[name_col] is not None],key=lambda x:x["name"])
     if level=="municipality" and parent_code and parent_code.startswith("province:"):
         # Province-to-municipality is an administrative relationship, not a
