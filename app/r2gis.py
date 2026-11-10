@@ -182,17 +182,20 @@ def boundaries(level:str,parent_code:str|None=None):
     if level not in ("region","province","municipality","barangay"):
         raise HTTPException(400,"Invalid level")
     if level=="region":
-        # The region dropdown and province filter MUST use the same ADM1_PCODE
-        # from the province dataset. Do not assume PSGC code conventions.
-        source=local_file("province")
-        info=pyogrio.read_info(source)
-        fields=list(info["fields"])
-        region_code=next((c for c in ("ADM1_PCODE","REGION_CODE","REG_CODE","ADM1_CODE") if c in fields),None)
-        region_name=next((c for c in ("ADM1_EN","REGION","REGION_NAME","REG_NAME") if c in fields),None)
-        if not region_code or not region_name:raise HTTPException(422,"Province dataset is missing region name/code fields")
-        df=pyogrio.read_dataframe(source,columns=[region_code,region_name],read_geometry=False)
-        pairs={(str(code).strip(),str(name).strip()) for code,name in zip(df[region_code],df[region_name]) if code is not None and name is not None}
-        return sorted([{"code":"region:"+code,"name":name} for code,name in pairs],key=lambda x:x["name"])
+        # Region catalog is tiny and stable; do not download the province
+        # GeoPackage just to populate the first dropdown on a free Render instance.
+        # Codes follow ADM1_PCODE values used by the administrative layers.
+        names=[
+          ("130000000","National Capital Region"),("140000000","Cordillera Administrative Region"),
+          ("010000000","Region I – Ilocos Region"),("020000000","Region II – Cagayan Valley"),
+          ("030000000","Region III – Central Luzon"),("040000000","Region IV-A – CALABARZON"),
+          ("170000000","MIMAROPA"),("050000000","Region V – Bicol Region"),
+          ("060000000","Region VI – Western Visayas"),("180000000","Negros Island Region"),
+          ("070000000","Region VII – Central Visayas"),("080000000","Region VIII – Eastern Visayas"),
+          ("090000000","Region IX – Zamboanga Peninsula"),("100000000","Region X – Northern Mindanao"),
+          ("110000000","Region XI – Davao Region"),("120000000","Region XII – SOCCSKSARGEN"),
+          ("160000000","Region XIII – Caraga"),("190000000","BARMM")]
+        return [{"code":"region:"+code,"name":name} for code,name in names]
     source=local_file(level)
     info=pyogrio.read_info(source)
     if level=="province" and parent_code and parent_code.startswith("region:"):
