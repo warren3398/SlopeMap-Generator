@@ -1,0 +1,72 @@
+name: Nationwide slope export batches
+on:
+  workflow_dispatch:
+    inputs:
+      level:
+        description: Administrative level
+        required: true
+        type: choice
+        options: [province, municipality, barangay]
+        default: province
+      start:
+        description: Start position in GeoPackage FID list (zero-based)
+        required: true
+        default: "0"
+      limit:
+        description: Number of administrative areas (1 to 200)
+        required: true
+        default: "20"
+  push:
+    paths:
+      - "dispatch/generate-nationwide-slope.txt"
+jobs:
+  nationwide-batch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - level: province
+            start: 0
+            limit: 20
+          - level: municipality
+            start: 0
+            limit: 20
+          - level: barangay
+            start: 0
+            limit: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install GIS dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install matplotlib
+      - name: Pre-generate verified slope JPEG and shapefile ZIP
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          EVENT_NAME: ${{ github.event_name }}
+          REQUEST_LEVEL: ${{ inputs.level }}
+          REQUEST_START: ${{ inputs.start }}
+          REQUEST_LIMIT: ${{ inputs.limit }}
+          MATRIX_LEVEL: ${{ matrix.level }}
+          MATRIX_START: ${{ matrix.start }}
+          MATRIX_LIMIT: ${{ matrix.limit }}
+        run: |
+          set -euo pipefail
+          test -n "$R2_ACCOUNT_ID"
+          test -n "$R2_ACCESS_KEY_ID"
+          test -n "$R2_SECRET_ACCESS_KEY"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            # Matrix is used only for push-triggered initial nationwide pilot.
+            if [ "$MATRIX_LEVEL" != "province" ]; then exit 0; fi
+            python -u -m scripts.build_slope_exports --level "$REQUEST_LEVEL" --start "$REQUEST_START" --limit "$REQUEST_LIMIT"
+          else
+            python -u -m scripts.build_slope_exports --level "$MATRIX_LEVEL" --start "$MATRIX_START" --limit "$MATRIX_LIMIT"
+          fi
