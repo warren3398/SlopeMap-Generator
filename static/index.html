@@ -90,7 +90,7 @@ function drawGenerated(data){
  const polys=[];
  function collect(coords,depth){if(depth===2){polys.push(coords);return}for(const p of coords)collect(p,depth-1)}
  for(const f of features){const g=f.geometry;if(!g)continue;if(g.type==='Polygon')collect(g.coordinates,3);else if(g.type==='MultiPolygon')collect(g.coordinates,4)}
- const points=polys.flat(2).filter(p=>Array.isArray(p)&&typeof p[0]==='number');
+ const points=polys.flat().filter(p=>Array.isArray(p)&&typeof p[0]==='number');
  if(!points.length)throw Error('No drawable polygons');
  const xs=points.map(p=>p[0]),ys=points.map(p=>p[1]),minx=Math.min(...xs),maxx=Math.max(...xs),miny=Math.min(...ys),maxy=Math.max(...ys);
  const scale=Math.min(1080/Math.max(maxx-minx,1e-9),620/Math.max(maxy-miny,1e-9));
