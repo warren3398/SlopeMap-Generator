@@ -1,0 +1,1 @@
+Generate existing-source slope JPEG and Shapefile ZIP exports for all Abra municipalities and barangays. Only publish areas with sufficient coverage.
