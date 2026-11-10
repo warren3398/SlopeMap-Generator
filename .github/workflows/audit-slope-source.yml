@@ -1,6 +1,9 @@
 name: Audit nationwide slope source coverage
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - dispatch/audit-slope-source.txt
 jobs:
   audit:
     runs-on: ubuntu-latest
@@ -17,4 +20,4 @@ jobs:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: python -u -m scripts.audit_slope_source
+        run: python -u -m scripts.audit_r2_slope_source
