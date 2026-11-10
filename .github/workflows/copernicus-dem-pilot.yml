@@ -1,0 +1,33 @@
+name: Copernicus DEM tile inventory pilot
+on:
+  workflow_dispatch:
+    inputs:
+      south: {description: "Southern latitude", required: true, default: "15"}
+      north: {description: "Northern latitude", required: true, default: "17"}
+      west: {description: "Western longitude", required: true, default: "120"}
+      east: {description: "Eastern longitude", required: true, default: "122"}
+  push:
+    paths:
+      - dispatch/copernicus-dem-pilot.txt
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check public 30m DEM tiles (no download)
+        env:
+          SOUTH: ${{ inputs.south }}
+          NORTH: ${{ inputs.north }}
+          WEST: ${{ inputs.west }}
+          EAST: ${{ inputs.east }}
+        run: |
+          python -m scripts.discover_copernicus_dem --south "${SOUTH:-15}" --north "${NORTH:-17}" --west "${WEST:-120}" --east "${EAST:-122}" --max-tiles 12
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: copernicus-dem-pilot-inventory
+          path: copernicus_dem_inventory.csv
+          if-no-files-found: ignore
