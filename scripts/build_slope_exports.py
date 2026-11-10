@@ -121,7 +121,8 @@ def build_export(a):
             if not part.empty:
                 part.plot(ax=ax,color=COLORS[cls],edgecolor="none",zorder=2)
         boundary_ll=gpd.GeoSeries([boundary],crs=boundary_frame.crs).to_crs(4326)
-        boundary_ll.boundary.plot(ax=ax,color="#26352d",linewidth=1.0,zorder=20)
+        boundary_ll.boundary.plot(ax=ax,color="#ffffff",linewidth=3.0,zorder=20)
+        boundary_ll.boundary.plot(ax=ax,color="#17251d",linewidth=1.65,zorder=21)
         bounds=boundary_ll.total_bounds
         dx=max(bounds[2]-bounds[0],0.0001);dy=max(bounds[3]-bounds[1],0.0001)
         ax.set_xlim(bounds[0]-dx*.035,bounds[2]+dx*.035)
