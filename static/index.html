@@ -85,30 +85,59 @@ buttons.forEach(b=>b.addEventListener('click',()=>{const item=selected();if(!ite
 let generated=null;
 function drawGenerated(data){
  const c=$('generated-map'),ctx=c.getContext('2d'),features=data.features||[];
- ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);
- ctx.fillStyle='#173b2c';ctx.font='bold 30px system-ui';ctx.fillText('SLOPE CLASSIFICATION MAP',40,54);
- // Scan coordinates in-place: no recursive traversal, spread, or giant flattened arrays.
- let minx=Infinity,maxx=-Infinity,miny=Infinity,maxy=-Infinity,pointCount=0;
- function scanRing(ring){
-   for(let i=0;i<ring.length;i++){
-     const p=ring[i],px=p[0],py=p[1];
-     if(!Number.isFinite(px)||!Number.isFinite(py))continue;
-     pointCount++;if(px<minx)minx=px;if(px>maxx)maxx=px;
-     if(py<miny)miny=py;if(py>maxy)maxy=py;
-   }
- }
- for(const f of features){
-   const g=f.geometry;if(!g)continue;
-   if(g.type==='Polygon'){for(const ring of g.coordinates)scanRing(ring)}
-   else if(g.type==='MultiPolygon'){for(const poly of g.coordinates)for(const ring of poly)scanRing(ring)}
- }
- if(!pointCount)throw Error('Generated map contains no valid coordinates');
- const scale=Math.min(1080/Math.max(maxx-minx,1e-9),620/Math.max(maxy-miny,1e-9));
- const x=v=>60+(v-minx)*scale,y=v=>720-(v-miny)*scale;
- const colors={A:'#418a41',B:'#89b340',C:'#dde340',D:'#ffe240',E:'#ffa340',F:'#ff0000'};
- function paint(rings){ctx.beginPath();for(const ring of rings){ring.forEach((p,i)=>i?ctx.lineTo(x(p[0]),y(p[1])):ctx.moveTo(x(p[0]),y(p[1])));ctx.closePath()}ctx.fill('evenodd')}
- for(const f of features){const g=f.geometry;if(!g)continue;ctx.fillStyle=colors[String(f.properties?.slope_class||'').toUpperCase()]||'#aaa';if(g.type==='Polygon')paint(g.coordinates);else if(g.type==='MultiPolygon')for(const p of g.coordinates)paint(p)}
- ctx.fillStyle='#173b2c';ctx.font='17px system-ui';ctx.fillText('Slope classes: A 0–3%  |  B 3–8%  |  C 8–18%  |  D 18–30%  |  E 30–50%  |  F >50%',40,770);
+ c.width=1500;c.height=940;
+ const green='#005733',ink='#17251e',line='#81978a';
+ ctx.fillStyle='#fff';ctx.fillRect(0,0,1500,940);
+ ctx.strokeStyle=ink;ctx.lineWidth=1.5;ctx.strokeRect(18,14,1464,912);
+ const text=(value,x,y,size=16,bold=false,color=ink,align='left')=>{
+   ctx.fillStyle=color;ctx.font=(bold?'bold ':'')+size+'px Arial, sans-serif';
+   ctx.textAlign=align;ctx.fillText(String(value),x,y);ctx.textAlign='left';
+ };
+ text('SLOPE CLASSIFICATION MAP',525,70,26,true,ink,'center');
+ const mx=52,my=90,mw=950,mh=770;
+ ctx.strokeStyle=line;ctx.lineWidth=1.2;ctx.strokeRect(mx,my,mw,mh);
+ let minx=Infinity,maxx=-Infinity,miny=Infinity,maxy=-Infinity,count=0;
+ function scan(ring){for(const p of ring){const a=p[0],b=p[1];if(!Number.isFinite(a)||!Number.isFinite(b))continue;count++;if(a<minx)minx=a;if(a>maxx)maxx=a;if(b<miny)miny=b;if(b>maxy)maxy=b}}
+ for(const f of features){const g=f.geometry;if(!g)continue;if(g.type==='Polygon'){for(const ring of g.coordinates)scan(ring)}else if(g.type==='MultiPolygon'){for(const poly of g.coordinates)for(const ring of poly)scan(ring)}}
+ if(!count)throw Error('Generated map contains no valid coordinates');
+ const scale=Math.min((mw-100)/Math.max(maxx-minx,1e-12),(mh-105)/Math.max(maxy-miny,1e-12));
+ const cx=(minx+maxx)/2,cy=(miny+maxy)/2;
+ const x=v=>mx+mw/2+(v-cx)*scale,y=v=>my+mh/2-(v-cy)*scale;
+ const colors={A:'#408b48',B:'#88b33f',C:'#d7e940',D:'#ffe348',E:'#ffa13d',F:'#ff0808'};
+ const rows=[['A','0–3%','Level to nearly level'],['B','3–8%','Gently sloping'],['C','8–18%','Sloping'],['D','18–30%','Moderately steep'],['E','30–50%','Steep'],['F','>50%','Very steep']];
+ function paint(rings){ctx.beginPath();for(const ring of rings){for(let i=0;i<ring.length;i++){const p=ring[i];if(i===0)ctx.moveTo(x(p[0]),y(p[1]));else ctx.lineTo(x(p[0]),y(p[1]))}ctx.closePath()}ctx.fill('evenodd')}
+ ctx.save();ctx.beginPath();ctx.rect(mx+1,my+1,mw-2,mh-2);ctx.clip();
+ for(const f of features){const g=f.geometry;if(!g)continue;ctx.fillStyle=colors[String(f.properties?.slope_class||'').trim().toUpperCase()]||'#aaaaaa';if(g.type==='Polygon')paint(g.coordinates);else if(g.type==='MultiPolygon')for(const p of g.coordinates)paint(p)}
+ ctx.restore();
+ // North arrow
+ ctx.strokeStyle=ink;ctx.lineWidth=1.2;ctx.strokeRect(916,124,52,70);
+ text('N',942,149,15,true,ink,'center');
+ ctx.fillStyle=ink;ctx.beginPath();ctx.moveTo(942,155);ctx.lineTo(936,171);ctx.lineTo(948,171);ctx.closePath();ctx.fill();
+ const sx=1046,sw=395;
+ function band(label,top,height=39){ctx.fillStyle=green;ctx.fillRect(sx,top,sw,height);text(label,sx+sw/2,top+height/2+6,17,true,'#fff','center')}
+ band('SLOPE MAP',76,70);
+ const place=[ $('barangay').selectedOptions[0]?.textContent,$('municipality').selectedOptions[0]?.textContent,$('province').selectedOptions[0]?.textContent ].find(v=>v&&!/^(All barangays|Whole province|Select|Loading)/i.test(v))||'SELECTED AREA';
+ text(place.toUpperCase(),sx+sw/2,185,20,true,ink,'center');
+ band('SLOPE CLASS LEGEND',202,36);
+ rows.forEach((r,i)=>{const yy=267+i*36;ctx.fillStyle=colors[r[0]];ctx.fillRect(sx+14,yy-13,24,19);text(r[0],sx+48,yy+2,13,true);text(r[1],sx+70,yy+2,13,true);text(r[2],sx+190,yy+2,12)});
+ band('SLOPE CLASS SUMMARY',475,36);
+ const tx=sx,tw=sw,ty=525,rh=29,col1=80,col2=165;
+ ctx.fillStyle='#e9efeb';ctx.fillRect(tx,ty,tw,rh);
+ ctx.strokeStyle='#ccd6d0';ctx.lineWidth=.8;
+ const stats=new Map((data.statistics||[]).map(v=>[String(v.slope_class).trim().toUpperCase(),Number(v.area_ha)||0]));
+ const total=Number(data.total_classified_ha)||rows.reduce((n,r)=>n+(stats.get(r[0])||0),0);
+ for(let i=0;i<=8;i++){const yy=ty+i*rh;ctx.beginPath();ctx.moveTo(tx,yy);ctx.lineTo(tx+tw,yy);ctx.stroke()}
+ for(const xx of [tx,tx+col1,tx+col1+col2,tx+tw]){ctx.beginPath();ctx.moveTo(xx,ty);ctx.lineTo(xx,ty+rh*8);ctx.stroke()}
+ text('CLASS',tx+col1/2,ty+19,13,true,ink,'center');
+ text('AREA (HA)',tx+col1+col2/2,ty+19,13,true,ink,'center');
+ text('AREA (%)',tx+col1+col2+(tw-col1-col2)/2,ty+19,13,true,ink,'center');
+ rows.forEach((r,i)=>{const area=stats.get(r[0])||0,yy=ty+(i+1)*rh+19;text(r[0],tx+col1/2,yy,13,false,ink,'center');text(area.toFixed(2),tx+col1+col2/2,yy,13,false,ink,'center');text((total?100*area/total:0).toFixed(2),tx+col1+col2+(tw-col1-col2)/2,yy,13,false,ink,'center')});
+ const totalY=ty+7*rh;ctx.fillStyle='#e9efeb';ctx.fillRect(tx,totalY,tw,rh);
+ text('TOTAL',tx+col1/2,totalY+19,13,true,ink,'center');
+ text(total.toFixed(2),tx+col1+col2/2,totalY+19,13,true,ink,'center');
+ text(total?'100.00':'0.00',tx+col1+col2+(tw-col1-col2)/2,totalY+19,13,true,ink,'center');
+ band('MAP INFORMATION',783,52);
+ text('CRS: WGS 84  |  Classified area: '+total.toFixed(2)+' ha',sx+8,857,12);
  c.style.display='block';$('generated-actions').style.display='flex';
 }
 $('generate-now').addEventListener('click',async()=>{
