@@ -1,0 +1,1 @@
+Start nationwide coverage-based export queue for all provinces, municipalities and barangays using existing slope source. Upload coverage CSV artifacts.
