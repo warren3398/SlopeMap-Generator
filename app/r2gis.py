@@ -4,10 +4,12 @@ from functools import lru_cache
 import boto3
 import geopandas as gpd
 import pyogrio
+import shapely
 from shapely.ops import unary_union
 from shapely.geometry import mapping
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Body
 from botocore.config import Config
+from boto3.s3.transfer import TransferConfig
 from fastapi.responses import StreamingResponse
 from io import BytesIO
 
@@ -35,7 +37,7 @@ def local_file(kind):
         if path.exists() and path.stat().st_size>0: return path
         tmp=path.with_suffix(".download")
         try:
-            client().download_file(BUCKET,KEYS[kind],str(tmp))
+            client().download_file(BUCKET,KEYS[kind],str(tmp),Config=TransferConfig(max_concurrency=2,max_io_queue=4,io_chunksize=256*1024))
             tmp.replace(path)
         except Exception as exc:
             tmp.unlink(missing_ok=True)
@@ -96,7 +98,7 @@ def slope_column(columns):
 
 def valid_poly(geometry):
     if geometry is None or geometry.is_empty:return geometry
-    return geometry if geometry.is_valid else geometry.buffer(0)
+    return geometry if geometry.is_valid else shapely.make_valid(geometry,method='structure',keep_collapsed=False)
 
 def intersecting(kind,geom):
     # GeoPackage uses spatial index when the layer provides one.
@@ -150,8 +152,8 @@ def inspect_boundaries():
         try:
             path=local_file(level)
             info=pyogrio.read_info(path)
-            df=pyogrio.read_dataframe(path,max_features=3)
-            cols=[str(c) for c in df.columns if c!=df.geometry.name]
+            df=pyogrio.read_dataframe(path,max_features=3,read_geometry=False)
+            cols=[str(c) for c in df.columns]
             result[level]={"count":int(info["features"]),"columns":cols,"samples":[{c:str(row[c])[:70] for c in cols} for _,row in df.iterrows()]}
         except Exception as exc:
             result[level]={"error":type(exc).__name__}

@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+__pycache__
+*.py[cod]
+.pytest_cache
+tests
+*.gpkg
+*.zip
+*.jpg
+*.png
