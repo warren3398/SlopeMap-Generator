@@ -25,7 +25,7 @@ class AreaBatches:
         if not self.info['crs']:
             raise ValueError('Source data has no CRS.')
         self.columns=columns
-        self.batch_size=min(BATCH_SIZE,16) if boundary is not None else BATCH_SIZE
+        self.batch_size=BATCH_SIZE
         self.offset=0
         self.clip=None
         self.bbox=None
@@ -41,7 +41,7 @@ class AreaBatches:
         while self.offset<self.info['features']:
             offset=self.offset
             self.offset+=self.batch_size
-            frame=gpd.read_file(self.path,columns=self.columns,bbox=self.bbox,skip_features=offset,max_features=self.batch_size,fid_as_index=True)
+            frame=pyogrio.read_dataframe(self.path,columns=self.columns,bbox=self.bbox,skip_features=offset,max_features=self.batch_size,fid_as_index=True)
             if frame.empty:
                 self.offset=self.info['features']
                 break
@@ -138,7 +138,7 @@ def shapefile_from_geopackage(gpkg, target, folder):
         path.unlink()
     written = 0
     for frame in area_batches(gpkg):
-        frame.rename(columns=renamed).to_file(shape / 'map.shp', driver='ESRI Shapefile', encoding='UTF-8', index=False, mode='a' if written else 'w')
+        pyogrio.write_dataframe(frame.rename(columns=renamed).reset_index(drop=True),shape / 'map.shp',driver='ESRI Shapefile',encoding='UTF-8',append=bool(written))
         written += len(frame)
         del frame
         release_memory(full=False)
