@@ -26,11 +26,29 @@ select{width:100%;padding:12px;border:1px solid #b9cdc0;border-radius:9px;backgr
 </section></main>
 <script>
 const $=id=>document.getElementById(id),buttons=[...document.querySelectorAll('[data-format]')];
-let regions=[],busy=false;
+let regions=[],busy=false,coverageRequest=0,unavailable=false;
 function status(message,kind=''){const el=$('status');el.textContent=message;el.className='status '+kind;}
 function fill(id,items,label){$(id).replaceChildren(new Option(label,''),...items.map(item=>new Option(item.name,item.code)));}
 function selection(){const code=$('barangay').value||$('municipality').value||$('province').value||$('region').value;const [level,fid]=code.split(':');return {level,fid};}
-function update(){const chosen=selection();buttons.forEach(b=>b.disabled=busy||!chosen.fid);if(!busy)status(chosen.fid?'Choose a download format for the selected '+chosen.level+'.':'Select an island group and region to continue.',chosen.fid?'ready':'');}
+function update(){
+ const chosen=selection(),request=++coverageRequest;
+ unavailable=false;
+ buttons.forEach(b=>b.disabled=true);
+ if(busy)return;
+ if(!chosen.fid){status('Select an island group and region to continue.');return;}
+ status('Checking slope source coverage…','loading');
+ fetch('/api/slope-coverage?level='+encodeURIComponent(chosen.level)+'&fid='+encodeURIComponent(chosen.fid),{cache:'no-store'})
+  .then(json).then(data=>{
+   if(request!==coverageRequest||busy)return;
+   unavailable=data.status==='outside';
+   buttons.forEach(b=>b.disabled=unavailable);
+   status(data.message,unavailable?'waiting':'ready');
+  }).catch(error=>{
+   if(request!==coverageRequest||busy)return;
+   unavailable=true;
+   status('Coverage check unavailable: '+error.message,'error');
+  });
+}
 function resetBelow(level){const ids=['region','province','municipality','barangay'],labels=['Select region','Whole region','Whole province','All barangays'];for(let i=ids.indexOf(level)+1;i<ids.length;i++){fill(ids[i],[],labels[i]);$(ids[i]).disabled=true;}}
 async function json(response){let data;try{data=await response.json();}catch(error){throw Error('Service connection was interrupted. Please retry.');}if(!response.ok)throw Error(data.detail||data.error||'Download service is unavailable. Please retry.');return data;}
 async function children(level,parent){return json(await fetch('/api/slope-boundaries?level='+level+'&parent_code='+encodeURIComponent(parent),{cache:'no-store'}));}
@@ -50,7 +68,7 @@ async function prepare(params){
  throw Error('Preparation is taking longer than expected. Please retry; completed work is cached.');
 }
 buttons.forEach(button=>button.addEventListener('click',async()=>{
- const params={...selection(),format:button.dataset.format};if(!params.fid||busy)return;
+ const params={...selection(),format:button.dataset.format};if(!params.fid||busy||unavailable)return;
  busy=true;update();status('Preparing '+(params.format==='zip'?'Shapefile ZIP':params.format.toUpperCase())+' for the selected '+params.level+'. The download will start automatically.','loading');
  try{
   const prepared=await prepare(params),download=prepared.download_url;
