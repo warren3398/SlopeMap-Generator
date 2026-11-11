@@ -90,8 +90,15 @@ def province_raster(storage, bucket, source, layer, cache, boundary=None):
             clip = clip.copy()
             clip.geometry = shapely.make_valid(clip.geometry.array,method='structure',keep_collapsed=False)
             clip.geometry = clip.geometry.simplify(tolerance,preserve_topology=True)
+        # An empty source extent is a coverage issue, not a renderer failure.
+        source_bounds=info['total_bounds']
+        if (native_bounds[2]<source_bounds[0] or native_bounds[0]>source_bounds[2]
+            or native_bounds[3]<source_bounds[1] or native_bounds[1]>source_bounds[3]):
+            raise ValueError('Outside source coverage: the uploaded slope GeoPackage does not cover this selected area.')
         canvas = np.zeros(shape, dtype='uint8')
         offset = 0
+        matched_polygons = 0
+        classified_polygons = 0
         while True:
             frame = pyogrio.read_dataframe(path, columns=[field], bbox=native_bounds if clip is not None else None, skip_features=offset, max_features=BATCH_SIZE)
             batch_count = len(frame)
@@ -110,13 +117,19 @@ def province_raster(storage, bucket, source, layer, cache, boundary=None):
             frame = frame.to_crs(3857)
             if frame.empty:
                 continue
+            matched_polygons += len(frame)
             values = frame[field].map(class_code).map(lambda code: palette.get(code,0))
+            classified_polygons += int((values != 0).sum())
             # GDAL burns only visible pixels; no merged full-detail geometry is retained.
             with rasterio.Env(GDAL_CACHEMAX=8*1024*1024):
                 rasterize(zip(frame.geometry, values), out=canvas, transform=transform)
             del frame, values
             if offset % (BATCH_SIZE*40) < batch_count:
                 print('REGIONAL_JPEG raster', source['Key'], offset, '/', info['features'], flush=True)
+        if matched_polygons == 0:
+            raise ValueError('No slope polygons intersect this boundary in the uploaded GeoPackage.')
+        if classified_polygons == 0:
+            raise ValueError('Slope polygons intersect the boundary, but none has a recognized slope class (A–F). Check the source classification values.')
     print('REGIONAL_JPEG raster complete', source['Key'], round(time.monotonic()-started, 2), 'seconds', flush=True)
     staging = target.with_suffix('.part')
     with staging.open('wb') as stream:
