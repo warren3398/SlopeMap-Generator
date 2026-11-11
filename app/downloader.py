@@ -138,9 +138,11 @@ def spatial_children(kind,path,parent_code):
     info=pyogrio.read_info(path)
     mask=boundary.to_crs(info['crs']).geometry.iloc[0]
     result=[]
-    for offset in range(0,info['features'],16):
-        batch=gpd.read_file(path,bbox=mask.bounds,skip_features=offset,max_features=16,fid_as_index=True)
+    offset=0
+    while True:
+        batch=pyogrio.read_dataframe(path,bbox=mask.bounds,skip_features=offset,max_features=128,fid_as_index=True)
         if batch.empty:break
+        offset+=len(batch)
         for fid,row in batch.iterrows():
             if row.geometry is not None and not row.geometry.is_empty and mask.covers(row.geometry.representative_point()):
                 result.append({'code':kind+':'+str(fid),'name':actual_name(row,kind)})
