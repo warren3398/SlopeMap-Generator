@@ -223,6 +223,17 @@ def prepare_file(params):
     boundary_ha=float(boundary.to_crs(6933).geometry.area.sum()/10000)
     if boundary_ha<=0:raise ValueError('Selected boundary is empty.')
     source_path,source=object_file('slope')
+    # Shared preflight for every level and export format: distinguish absent
+    # nationwide source coverage from a rendering or packaging failure.
+    source_info=pyogrio.read_info(source_path)
+    if not source_info['crs']:
+        raise ValueError('The slope source GeoPackage has no coordinate reference system.')
+    selected_bounds=boundary.to_crs(source_info['crs']).total_bounds
+    source_bounds=source_info['total_bounds']
+    if (selected_bounds[2]<source_bounds[0] or selected_bounds[0]>source_bounds[2]
+        or selected_bounds[3]<source_bounds[1] or selected_bounds[1]>source_bounds[3]):
+        raise ValueError('No slope coverage in the uploaded GeoPackage for this selected area. The current 116 MB master source is not nationwide; uploading the missing slope polygons is required.')
+
     fingerprint=hashlib.sha256(b''.join(boundary.to_crs(4326).geometry.to_wkb())).hexdigest()
     identity=json.dumps(['direct-v2',level,fid,source,fingerprint],sort_keys=True)
     digest=hashlib.sha256(identity.encode()).hexdigest()
