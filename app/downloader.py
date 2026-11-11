@@ -298,6 +298,27 @@ def run_job(job_id,params):
     with JOB_LOCK:JOBS[job_id].update(result,updated=time.monotonic())
 
 
+@router.get('/api/slope-coverage')
+def slope_coverage(level:str,fid:str):
+    if level not in ('region','province','municipality','barangay') or not fid.isdigit() or len(fid)>10:
+        raise HTTPException(400,'Invalid location selection.')
+    try:
+        boundary,_=selection_boundary(level,fid)
+        source_path,_=object_file('slope')
+        info=pyogrio.read_info(source_path)
+        selected=boundary.to_crs(info['crs']).total_bounds
+        bounds=info['total_bounds']
+        overlaps=not (selected[2]<bounds[0] or selected[0]>bounds[2] or selected[3]<bounds[1] or selected[1]>bounds[3])
+        if not overlaps:
+            return {'status':'outside','message':'Outside available slope source coverage. This location cannot be generated from the current GeoPackage.'}
+        # Extent overlap is not proof of polygon coverage.
+        return {'status':'possible','message':'Within the source extent. Actual slope coverage is checked during generation.'}
+    except ValueError as exc:
+        raise HTTPException(400,str(exc))
+    except Exception:
+        logging.exception('Slope coverage preflight failed')
+        raise HTTPException(503,'Slope coverage check is temporarily unavailable.')
+
 @router.post('/api/prepare-download')
 def start_download(data:dict=Body(...)):
     level=str(data.get('level',''));fid=str(data.get('fid',''));fmt=str(data.get('format',''))
