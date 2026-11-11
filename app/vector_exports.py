@@ -38,13 +38,12 @@ class AreaBatches:
     def __iter__(self):return self
 
     def __next__(self):
-        while self.offset<self.info['features']:
+        while True:
             offset=self.offset
-            self.offset+=self.batch_size
             frame=pyogrio.read_dataframe(self.path,columns=self.columns,bbox=self.bbox,skip_features=offset,max_features=self.batch_size,fid_as_index=True)
             if frame.empty:
-                self.offset=self.info['features']
                 break
+            self.offset+=len(frame)
             frame=frame[frame.geometry.notna() & ~frame.geometry.is_empty].copy()
             if self.clip is not None and not frame.empty:
                 for index in frame.index[~frame.geometry.is_valid]:
