@@ -91,10 +91,13 @@ def province_raster(storage, bucket, source, layer, cache, boundary=None):
             clip.geometry = shapely.make_valid(clip.geometry.array,method='structure',keep_collapsed=False)
             clip.geometry = clip.geometry.simplify(tolerance,preserve_topology=True)
         canvas = np.zeros(shape, dtype='uint8')
-        for offset in range(0, info['features'], BATCH_SIZE):
-            frame = gpd.read_file(path, columns=[field], bbox=native_bounds if clip is not None else None, skip_features=offset, max_features=BATCH_SIZE)
-            if frame.empty:
+        offset = 0
+        while True:
+            frame = pyogrio.read_dataframe(path, columns=[field], bbox=native_bounds if clip is not None else None, skip_features=offset, max_features=BATCH_SIZE)
+            batch_count = len(frame)
+            if not batch_count:
                 break
+            offset += batch_count
             frame = frame[frame.geometry.notna() & ~frame.geometry.is_empty]
             frame = frame[frame.geom_type.isin(['Polygon', 'MultiPolygon'])].copy()
             # Quarter-pixel detail is sufficient for this display raster, before projection.
@@ -112,7 +115,7 @@ def province_raster(storage, bucket, source, layer, cache, boundary=None):
             with rasterio.Env(GDAL_CACHEMAX=8*1024*1024):
                 rasterize(zip(frame.geometry, values), out=canvas, transform=transform)
             del frame, values
-            if offset % (BATCH_SIZE*40) == 0:
+            if offset % (BATCH_SIZE*40) < batch_count:
                 print('REGIONAL_JPEG raster', source['Key'], offset, '/', info['features'], flush=True)
     print('REGIONAL_JPEG raster complete', source['Key'], round(time.monotonic()-started, 2), 'seconds', flush=True)
     staging = target.with_suffix('.part')
