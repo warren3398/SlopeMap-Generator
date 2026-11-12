@@ -251,8 +251,13 @@ def prepare_file(params):
     print('SLOPE_PREPARE export_start',fmt,flush=True)
     storage=LocalSource(sources)
     if fmt=='jpeg':
+        # Discard the full coastline before source rendering; JPEG needs only pixel-scale detail.
+        bounds=boundary.total_bounds
+        tolerance=max(bounds[2]-bounds[0],bounds[3]-bounds[1])/1600/4
+        boundary.geometry=boundary.geometry.simplify(tolerance,preserve_topology=True)
+        release_memory()
         staging=folder/'layout.part.jpg'
-        try:metadata=render_region(storage,r2gis.BUCKET,sources,'slope',title,staging,ROOT/'rasters',boundary=boundary)
+        try:metadata=render_region(storage,r2gis.BUCKET,sources,'slope',title,staging,ROOT/'rasters',boundary=boundary,boundary_ha=boundary_ha)
         except Exception:staging.unlink(missing_ok=True);raise
         staging.replace(target)
         metadata.update(coverage_pct=metadata['total_ha']/boundary_ha*100,boundary_ha=boundary_ha,name=title)

@@ -100,3 +100,14 @@ def test_jpeg_skips_parts_outside_selected_municipality(setup,tmp_path,monkeypat
     monkeypatch.setattr(jpeg_layout,'compose',lambda canvas,*args,**kwargs: {'pixels':int(np.count_nonzero(canvas))})
     result=raster_exports.render_region(service.LocalSource(selected),'data',selected,'slope','North municipality',tmp_path/'unused.jpg',service.ROOT/'rasters',boundary=boundary)
     assert result['pixels']>0
+
+
+def test_large_jpeg_sources_are_simplified_by_gdal_before_loading(setup,tmp_path,monkeypatch):
+    from app import raster_exports,jpeg_layout
+    add_palawan(setup,tmp_path,duplicate=False)
+    selected=sources.select_sources('province','3')
+    for source in selected:source['Size']=200*1024*1024
+    boundary,title=service.selection_boundary('province','3')
+    monkeypatch.setattr(jpeg_layout,'compose',lambda canvas,*args,**kwargs:{'pixels':int(np.count_nonzero(canvas))})
+    result=raster_exports.render_region(service.LocalSource(selected),'data',selected,'slope',title,tmp_path/'unused.jpg',service.ROOT/'rasters',boundary=boundary)
+    assert result['pixels']>0

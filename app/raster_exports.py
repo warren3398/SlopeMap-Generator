@@ -5,6 +5,8 @@ import io
 import logging
 import tempfile
 import time
+import os
+import subprocess
 from pathlib import Path
 
 import geopandas as gpd
@@ -99,12 +101,24 @@ def province_raster(storage, bucket, source, layer, cache, boundary=None):
         if (native_bounds[2]<source_bounds[0] or native_bounds[0]>source_bounds[2]
             or native_bounds[3]<source_bounds[1] or native_bounds[1]>source_bounds[3]):
             raise NoSourceIntersection('Outside source coverage: the uploaded slope GeoPackage does not cover this selected area.')
+        batch_size=BATCH_SIZE
+        if source.get('Size',0)>128*1024*1024:
+            # GDAL simplifies one feature at a time before Python receives geometry.
+            # Large source polygons otherwise create concurrent OGR/WKB/GEOS copies.
+            display_path=Path(scratch)/'display.gpkg'
+            command=['ogr2ogr','-f','GPKG',str(display_path),str(path),'-select',field,'-simplify',str(tolerance)]
+            if clip is not None:command.extend(['-spat',*[str(value) for value in native_bounds]])
+            subprocess.run(command,check=True,capture_output=True,timeout=900,env={**os.environ,'GDAL_CACHEMAX':'8','OGR_SQLITE_CACHE':'8'})
+            path=display_path
+            batch_size=128
+            from .memory_utils import release_memory
+            release_memory()
         canvas = np.zeros(shape, dtype='uint8')
         offset = 0
         matched_polygons = 0
         classified_polygons = 0
         while True:
-            frame = pyogrio.read_dataframe(path, columns=[field], bbox=native_bounds if clip is not None else None, skip_features=offset, max_features=BATCH_SIZE)
+            frame = pyogrio.read_dataframe(path, columns=[field], bbox=native_bounds if clip is not None else None, skip_features=offset, max_features=batch_size)
             batch_count = len(frame)
             if not batch_count:
                 break
@@ -149,7 +163,7 @@ def province_raster(storage, bucket, source, layer, cache, boundary=None):
     return canvas, bounds
 
 
-def render_region(storage, bucket, sources, layer, title, target, cache, boundary=None):
+def render_region(storage, bucket, sources, layer, title, target, cache, boundary=None, boundary_ha=None):
     from .memory_utils import release_memory
     from .jpeg_layout import compose
 
@@ -173,4 +187,4 @@ def render_region(storage, bucket, sources, layer, title, target, cache, boundar
         raise ValueError('No classified slope data is available in the selected area.')
     del rasters,projected,visible,pixels
     release_memory()
-    return compose(canvas,bounds,layer,title,target,boundary_ha=float(boundary.to_crs(6933).geometry.area.sum()/10000) if boundary is not None else None)
+    return compose(canvas,bounds,layer,title,target,boundary_ha=boundary_ha if boundary_ha is not None else float(boundary.to_crs(6933).geometry.area.sum()/10000) if boundary is not None else None)
