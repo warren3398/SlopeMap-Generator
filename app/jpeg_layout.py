@@ -8,7 +8,7 @@ from pyproj import Transformer
 
 from .export_styles import STYLES,RANGES
 
-LAYOUT_VERSION='framed-location-v2'
+LAYOUT_VERSION='framed-scale-v3'
 GREEN='#005b3c'
 INK='#202d27'
 LINE='#b6c0b9'
@@ -42,6 +42,46 @@ def _font(size,bold=False):
     return ImageFont.load_default(size=size)
 
 
+def scale_bar(bounds,image_width,max_pixels=320):
+    """A nice ground distance at the map centre, adjusted for Mercator distortion."""
+    from math import floor,log10
+    from pyproj import Geod
+    left,bottom,right,top=bounds
+    x,y=(left+right)/2,(bottom+top)/2
+    to_geo=Transformer.from_crs(3857,4326,always_xy=True)
+    longitude,latitude=to_geo.transform(x,y)
+    geod=Geod(ellps='WGS84')
+    units_per_pixel=(right-left)/image_width
+    def distance(pixels):
+        end_longitude,end_latitude=to_geo.transform(x+pixels*units_per_pixel,y)
+        return geod.inv(longitude,latitude,end_longitude,end_latitude)[2]
+    maximum=distance(max_pixels)
+    magnitude=10**floor(log10(maximum))
+    metres=max(value*magnitude for value in (1,2,5) if value*magnitude<=maximum)
+    low,high=0.,float(max_pixels)
+    for _ in range(30):
+        middle=(low+high)/2
+        if distance(middle)<metres:low=middle
+        else:high=middle
+    divisor,unit=(1000,'km') if metres>=1000 else (1,'m')
+    return {'metres':metres,'pixels':(low+high)/2,'labels':['0',f'{metres/divisor/2:g}',f'{metres/divisor:g} {unit}']}
+
+
+def draw_scale_bar(draw,bounds,image_width):
+    bar=scale_bar(bounds,image_width)
+    x,y,width=160,1680,bar['pixels']
+    # Reserved bottom margin of the map frame; no map polygons are covered.
+    draw.rectangle((142,1640,610,1716),fill='white')
+    for segment in range(4):
+        draw.rectangle((x+width*segment/4,y,x+width*(segment+1)/4,y+12),fill=INK if segment%2==0 else 'white')
+    draw.rectangle((x,y,x+width,y+12),outline=INK,width=2)
+    for fraction,label in zip((0,.5,1),bar['labels']):
+        at=x+width*fraction
+        draw.line((at,y-4,at,y+16),fill=INK,width=2)
+        draw.text((at,y-10),label,font=_font(20),fill=INK,anchor='ms')
+    draw.text((x,y+28),'Scale at map center',font=_font(15),fill=INK,anchor='lm')
+
+
 def compose(canvas,bounds,layer,title,target,boundary_ha=None):
     styles=STYLES[layer]
     areas=class_areas(canvas,bounds,len(styles))
@@ -60,6 +100,7 @@ def compose(canvas,bounds,layer,title,target,boundary_ha=None):
     scale=min(1750/image.width,1370/image.height)
     image=image.resize((max(1,round(image.width*scale)),max(1,round(image.height*scale))),Image.Resampling.NEAREST)
     page.paste(image,(104+(1900-image.width)//2,180+(1540-image.height)//2),image)
+    draw_scale_bar(draw,bounds,image.width)
     del image
     draw.rectangle((1832,248,1936,388),fill='white',outline='#79847d',width=3)
     draw.text((1884,287),'N',font=_font(27,True),fill=INK,anchor='mm')
