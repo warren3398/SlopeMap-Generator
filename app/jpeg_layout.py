@@ -8,7 +8,7 @@ from pyproj import Transformer
 
 from .export_styles import STYLES,RANGES
 
-LAYOUT_VERSION='framed-v1'
+LAYOUT_VERSION='framed-location-v2'
 GREEN='#005b3c'
 INK='#202d27'
 LINE='#b6c0b9'
@@ -71,18 +71,13 @@ def compose(canvas,bounds,layer,title,target,boundary_ha=None):
         draw.rectangle((x0,y,x1,y+height),fill=GREEN)
         draw.text((mid,y+height//2),text,font=_font(31,True),fill='white',anchor='mm')
     band(152,142,layer.upper()+' MAP')
-    label=title.upper()
-    size=40
-    while draw.textlength(label,font=_font(size,True))>750 and size>25:size-=1
-    if draw.textlength(label,font=_font(size,True))<=750:
-        draw.text((mid,355),label,font=_font(size,True),fill=INK,anchor='mm')
-    else:
-        words=label.split();lines=['']
-        for word in words:
-            proposed=(lines[-1]+' '+word).strip()
-            if draw.textlength(proposed,font=_font(25,True))>750:lines.append(word)
-            else:lines[-1]=proposed
-        for i,line in enumerate(lines[:2]):draw.text((mid,337+i*31),line,font=_font(25,True),fill=INK,anchor='mm')
+    lines=[line.strip().upper() for line in title.splitlines() if line.strip()]
+    spacing=30
+    first_y=355-(len(lines)-1)*spacing/2
+    for index,label in enumerate(lines):
+        size=40 if len(lines)==1 else 30 if len(lines)==2 else 26
+        while draw.textlength(label,font=_font(size,True))>750 and size>10:size-=1
+        draw.text((mid,first_y+index*spacing),label,font=_font(size,True),fill=INK,anchor='mm')
     band(404,72,layer.upper()+' CLASS LEGEND')
     y=500
     for code,description,rgb in styles:

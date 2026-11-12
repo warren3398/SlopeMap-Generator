@@ -140,6 +140,18 @@ def selection_boundary(level,fid,display=False):
     return frame,title
 
 
+def location_title(level,fid):
+    """Use real boundary names to display the selected administrative hierarchy."""
+    if level=='region':return 'Region: '+REGIONS[str(fid).zfill(9)]['name']
+    path,_=object_file(level)
+    row=attributes(str(path)).loc[int(fid)]
+    if level=='province':return 'Province: '+actual_name(row,'province')
+    lines=['Province: '+str(row['NAME_1'])]
+    lines.append('Municipality / City: '+actual_name(row,'municipality'))
+    if level=='barangay':lines.append('Barangay: '+actual_name(row,'barangay'))
+    return '\n'.join(lines)
+
+
 def split_parent(code,expected):
     level,_,fid=str(code or '').partition(':')
     if level!=expected or not fid.isdigit():raise ValueError('Select a valid parent administrative area.')
@@ -264,7 +276,7 @@ def prepare_file(params):
         boundary.geometry=boundary.geometry.simplify(tolerance,preserve_topology=False)
         release_memory()
         staging=folder/'layout.part.jpg'
-        try:metadata=render_region(storage,r2gis.BUCKET,sources,'slope',title,staging,ROOT/'rasters',boundary=boundary,boundary_ha=boundary_ha)
+        try:metadata=render_region(storage,r2gis.BUCKET,sources,'slope',location_title(level,fid),staging,ROOT/'rasters',boundary=boundary,boundary_ha=boundary_ha)
         except Exception:staging.unlink(missing_ok=True);raise
         staging.replace(target)
         metadata.update(coverage_pct=metadata['total_ha']/boundary_ha*100,boundary_ha=boundary_ha,name=title)
