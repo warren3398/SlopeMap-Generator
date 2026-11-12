@@ -102,15 +102,20 @@ def test_jpeg_skips_parts_outside_selected_municipality(setup,tmp_path,monkeypat
     assert result['pixels']>0
 
 
-def test_large_jpeg_sources_are_simplified_by_gdal_before_loading(setup,tmp_path,monkeypatch):
+def test_large_jpeg_sources_are_rasterized_by_gdal_without_loading_geometry(setup,tmp_path,monkeypatch):
     from app import raster_exports,jpeg_layout
     add_palawan(setup,tmp_path,duplicate=False)
     selected=sources.select_sources('province','3')
     for source in selected:source['Size']=200*1024*1024
     boundary,title=service.selection_boundary('province','3')
-    monkeypatch.setattr(jpeg_layout,'compose',lambda canvas,*args,**kwargs:{'pixels':int(np.count_nonzero(canvas))})
+    monkeypatch.setattr(jpeg_layout,'compose',lambda canvas,bounds,*args,**kwargs:{'canvas':canvas,'bounds':bounds})
     result=raster_exports.render_region(service.LocalSource(selected),'data',selected,'slope',title,tmp_path/'unused.jpg',service.ROOT/'rasters',boundary=boundary)
-    assert result['pixels']>0
+    canvas,bounds=result['canvas'],result['bounds']
+    assert set(np.unique(canvas))=={0,1,6}
+    for latitude,expected in [(10.25,6),(8.5,1)]:
+        x,y=Transformer.from_crs(4326,3857,always_xy=True).transform(119,latitude)
+        row=int((bounds[3]-y)/(bounds[3]-bounds[1])*canvas.shape[0]);column=int((x-bounds[0])/(bounds[2]-bounds[0])*canvas.shape[1])
+        assert canvas[row,column]==expected
 
 
 def test_jpeg_masks_pixels_outside_nonrectangular_boundary(setup,tmp_path):

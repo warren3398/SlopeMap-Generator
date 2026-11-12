@@ -7,6 +7,8 @@ import tempfile
 import time
 import os
 import subprocess
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import geopandas as gpd
@@ -47,8 +49,29 @@ def class_code(value):
     return classify(value)
 
 
+def native_raster(path,field,palette,native_bounds,shape,transform,scratch):
+    """Burn native vectors directly in GDAL; Python receives only a tiny raster."""
+    from .source_overlap import ident
+    values=pyogrio.read_dataframe(path,columns=[field],read_geometry=False)[field].dropna().unique()
+    cases=[]
+    for value in values:
+        code=palette.get(class_code(value),0)
+        if code:cases.append('WHEN '+ident(field)+"='"+str(value).replace("'","''")+"' THEN "+str(code))
+    if not cases:raise ValueError('No recognized slope classes (A–F) exist in this source.')
+    with closing(sqlite3.connect(f'file:{path}?mode=ro',uri=True)) as database:
+        table,geometry=database.execute('SELECT table_name,column_name FROM gpkg_geometry_columns LIMIT 1').fetchone()
+    sql='SELECT '+ident(geometry)+', CASE '+ ' '.join(cases)+' ELSE 0 END AS __slope_burn FROM '+ident(table)
+    target=Path(scratch)/'native.tif'
+    command=['gdal_rasterize','-of','GTiff','-ot','Byte','-init','0','-a_nodata','0','-a','__slope_burn','-sql',sql,'-dialect','SQLITE','-te',*[str(v) for v in native_bounds],'-ts',str(shape[1]),str(shape[0]),str(path),str(target)]
+    subprocess.run(command,check=True,capture_output=True,timeout=900,env={**os.environ,'GDAL_CACHEMAX':'8','OGR_SQLITE_CACHE':'8'})
+    canvas=np.zeros(shape,dtype='uint8')
+    with rasterio.open(target) as dataset:
+        reproject(dataset.read(1),canvas,src_transform=dataset.transform,src_crs=dataset.crs,dst_transform=transform,dst_crs=3857,src_nodata=0,dst_nodata=0,resampling=Resampling.nearest)
+    return canvas
+
+
 def province_raster(storage, bucket, source, layer, cache, boundary=None):
-    identity = json.dumps(['raster-v2-mask', layer, source['Key'], source.get('ETag'), str(source.get('LastModified', '')), PIXELS])
+    identity = json.dumps(['raster-v3-native', layer, source['Key'], source.get('ETag'), str(source.get('LastModified', '')), PIXELS])
     if boundary is not None:
         fingerprint = hashlib.sha256(b''.join(boundary.to_crs(4326).geometry.to_wkb())).hexdigest()
         identity += '|clip-v1|' + fingerprint
@@ -101,52 +124,45 @@ def province_raster(storage, bucket, source, layer, cache, boundary=None):
         if (native_bounds[2]<source_bounds[0] or native_bounds[0]>source_bounds[2]
             or native_bounds[3]<source_bounds[1] or native_bounds[1]>source_bounds[3]):
             raise NoSourceIntersection('Outside source coverage: the uploaded slope GeoPackage does not cover this selected area.')
-        batch_size=BATCH_SIZE
         if source.get('Size',0)>8*1024*1024:
-            # GDAL simplifies one feature at a time before Python receives geometry.
-            # Large source polygons otherwise create concurrent OGR/WKB/GEOS copies.
-            display_path=Path(scratch)/'display.gpkg'
-            command=['ogr2ogr','-f','GPKG',str(display_path),str(path),'-select',field,'-simplify',str(tolerance)]
-            if clip is not None:command.extend(['-spat',*[str(value) for value in native_bounds]])
-            subprocess.run(command,check=True,capture_output=True,timeout=900,env={**os.environ,'GDAL_CACHEMAX':'8','OGR_SQLITE_CACHE':'8'})
-            path=display_path
-            batch_size=1024
-            from .memory_utils import release_memory
-            release_memory()
-        canvas = np.zeros(shape, dtype='uint8')
-        offset = 0
-        matched_polygons = 0
-        classified_polygons = 0
-        while True:
-            frame = pyogrio.read_dataframe(path, columns=[field], bbox=native_bounds if clip is not None else None, skip_features=offset, max_features=batch_size)
-            batch_count = len(frame)
-            if not batch_count:
-                break
-            offset += batch_count
-            frame = frame[frame.geometry.notna() & ~frame.geometry.is_empty]
-            frame = frame[frame.geom_type.isin(['Polygon', 'MultiPolygon'])].copy()
-            # Quarter-pixel detail is sufficient for this display raster, before projection.
-            frame.geometry = frame.geometry.simplify(tolerance, preserve_topology=True)
-            if clip is not None and not frame.empty:
-                invalid = ~frame.geometry.is_valid
-                if invalid.any():
-                    frame.loc[invalid, frame.geometry.name] = shapely.make_valid(frame.loc[invalid].geometry.array,method='structure',keep_collapsed=False)
-                # Clip the completed image once; per-feature vector intersections
-                # are unnecessary for a fixed-resolution JPEG.
-            frame = frame.to_crs(3857)
-            if frame.empty:
-                continue
-            matched_polygons += len(frame)
-            values = frame[field].map(class_code).map(lambda code: palette.get(code,0))
-            classified_polygons += int((values != 0).sum())
-            # GDAL burns only visible pixels; no merged full-detail geometry is retained.
-            with rasterio.Env(GDAL_CACHEMAX=8*1024*1024):
-                rasterize(zip(frame.geometry, values), out=canvas, transform=transform)
-            del frame, values
-            from .memory_utils import release_memory
-            release_memory(full=False)
-            if offset % (BATCH_SIZE*40) < batch_count:
-                print('REGIONAL_JPEG raster', source['Key'], offset, '/', info['features'], flush=True)
+            canvas=native_raster(path,field,palette,native_bounds,shape,transform,scratch)
+            matched_polygons=int(canvas.any())
+            classified_polygons=matched_polygons
+        else:
+            canvas = np.zeros(shape, dtype='uint8')
+            offset = 0
+            matched_polygons = 0
+            classified_polygons = 0
+            while True:
+                frame = pyogrio.read_dataframe(path, columns=[field], bbox=native_bounds if clip is not None else None, skip_features=offset, max_features=BATCH_SIZE)
+                batch_count = len(frame)
+                if not batch_count:
+                    break
+                offset += batch_count
+                frame = frame[frame.geometry.notna() & ~frame.geometry.is_empty]
+                frame = frame[frame.geom_type.isin(['Polygon', 'MultiPolygon'])].copy()
+                # Quarter-pixel detail is sufficient for this display raster, before projection.
+                frame.geometry = frame.geometry.simplify(tolerance, preserve_topology=True)
+                if clip is not None and not frame.empty:
+                    invalid = ~frame.geometry.is_valid
+                    if invalid.any():
+                        frame.loc[invalid, frame.geometry.name] = shapely.make_valid(frame.loc[invalid].geometry.array,method='structure',keep_collapsed=False)
+                    # Clip the completed image once; per-feature vector intersections
+                    # are unnecessary for a fixed-resolution JPEG.
+                frame = frame.to_crs(3857)
+                if frame.empty:
+                    continue
+                matched_polygons += len(frame)
+                values = frame[field].map(class_code).map(lambda code: palette.get(code,0))
+                classified_polygons += int((values != 0).sum())
+                # GDAL burns only visible pixels; no merged full-detail geometry is retained.
+                with rasterio.Env(GDAL_CACHEMAX=8*1024*1024):
+                    rasterize(zip(frame.geometry, values), out=canvas, transform=transform)
+                del frame, values
+                from .memory_utils import release_memory
+                release_memory(full=False)
+                if offset % (BATCH_SIZE*40) < batch_count:
+                    print('REGIONAL_JPEG raster', source['Key'], offset, '/', info['features'], flush=True)
         if clip is not None:
             mask=rasterize(((geometry,1) for geometry in clip.to_crs(3857).geometry),out_shape=shape,transform=transform,fill=0,dtype='uint8')
             canvas[mask==0]=0
