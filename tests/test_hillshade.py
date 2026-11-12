@@ -65,6 +65,7 @@ def test_raster_native_crs_is_reprojected_to_map(store,tmp_path,crs,bounds):
     raster(store,tmp_path,'Native',bounds,80,crs=crs)
     source=hillshade.catalog()[0]
     info=hillshade.metadata(source)
+    assert hillshade.cache_paths(source)==hillshade.cache_paths(info)
     expected=transform_bounds(crs,'EPSG:3857',*bounds,densify_pts=21)
     assert info['bounds']==pytest.approx(expected)
     image,_=hillshade.background(expected,(32,32))

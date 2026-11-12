@@ -33,7 +33,7 @@ def catalog():
 
 def cache_paths(source):
     from .downloader import ROOT
-    version=json.dumps(source,sort_keys=True)
+    version=json.dumps([source.get(key) for key in ('Key','Size','ETag','LastModified')])
     key=hashlib.sha256(version.encode()).hexdigest()
     folder=ROOT/'hillshade';folder.mkdir(parents=True,exist_ok=True)
     return folder/(key+'.tif'),folder/(key+'.json')
