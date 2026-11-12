@@ -6,10 +6,11 @@ import numpy as np
 from PIL import Image,ImageDraw,ImageFont
 from pyproj import Transformer
 from .hillshade import background as hillshade_background
+from .coast import paint_ocean,draw_shoreline,OCEAN,SHORELINE,CREDIT as COAST_CREDIT
 
 from .export_styles import STYLES,RANGES
 
-LAYOUT_VERSION='compact-r2-hillshade-v7'
+LAYOUT_VERSION='compact-r2-ocean-v8'
 GREEN='#005b3c'
 INK='#202d27'
 LINE='#b6c0b9'
@@ -117,10 +118,13 @@ def compose(canvas,bounds,layer,title,target,boundary_ha=None,hillshade_sources=
     palette=np.array([(255,255,255,0)]+[tuple(rgb)+(opacity,) for _,_,rgb in styles],dtype='uint8')
     overlay=Image.fromarray(palette[canvas]).resize(size,Image.Resampling.NEAREST)
     if background is None:background=Image.new('RGB',MAP_SIZE,'white')
+    shoreline=paint_ocean(background,view_bounds)
     image=background.convert('RGBA')
     image.alpha_composite(overlay,dest=offset)
+    draw_shoreline(image,view_bounds,shoreline)
     del background,overlay
     page.paste(image,(73,63),image)
+    imagery_credit=imagery_credit+' | '+COAST_CREDIT
     credit_size=18
     while draw.textlength(imagery_credit,font=_font(credit_size))>1929 and credit_size>11:credit_size-=1
     draw.text((78,1810),imagery_credit,font=_font(credit_size),fill=INK,anchor='lm')
@@ -158,6 +162,12 @@ def compose(canvas,bounds,layer,title,target,boundary_ha=None,hillshade_sources=
             draw.text((2322,y+22),description,font=_font(size),fill=INK,anchor='lm')
         y+=72 if layer=='slope' else 44
 
+    draw.line((2120,y+4,2910,y+4),fill=LINE,width=1)
+    draw.rectangle((2120,y+18,2168,y+50),fill=OCEAN,outline=SHORELINE)
+    draw.text((2188,y+34),'Ocean',font=_font(23),fill=INK,anchor='lm')
+    draw.line((2120,y+90,2168,y+90),fill=SHORELINE,width=3)
+    draw.text((2188,y+90),'Shoreline',font=_font(23),fill=INK,anchor='lm')
+    y+=112
     summary_y=y+24
     band(summary_y,72,layer.upper()+' CLASS SUMMARY')
     table_y=summary_y+96
@@ -174,7 +184,7 @@ def compose(canvas,bounds,layer,title,target,boundary_ha=None,hillshade_sources=
         row(table_y,height,[code,f'{area:,.2f}',f'{area/total*100 if total else 0:.2f}'])
         table_y+=height
     row(table_y,54,['TOTAL',f'{total:,.2f}','100.00' if total else '0.00'],PALE,True)
-    info_y=1476 if layer=='slope' else table_y+78
+    info_y=1588 if layer=='slope' else table_y+78
     band(info_y,80,'MAP INFORMATION')
     draw.text((2108,info_y+99),'CRS: EPSG:3857 | Source: Slope GeoPackage',font=_font(19),fill=INK,anchor='lm')
     draw.text((2108,info_y+127),f'Classified area: {total:,.2f} ha (raster estimate; equal-area)',font=_font(18),fill=INK,anchor='lm')
