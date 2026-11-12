@@ -11,11 +11,19 @@ from .coast import paint_ocean,draw_shoreline,OCEAN,SHORELINE,CREDIT as COAST_CR
 
 from .export_styles import STYLES,RANGES
 
-LAYOUT_VERSION='4k-r2-ocean-v9'
+LAYOUT_VERSION='4k-r2-ocean-v10-north'
 GREEN='#005b3c'
 INK='#202d27'
 LINE='#b6c0b9'
 PALE='#e8eee9'
+
+
+def draw_north_arrow(draw):
+    """Reference-style north arrow: open white west half, solid black east half."""
+    draw.rectangle((1836,112,1972,306),fill='white')
+    draw.text((1904,138),'N',font=_font(27,True),fill='black',anchor='mm')
+    draw.polygon([(1904,170),(1846,288),(1904,259),(1962,288)],fill='black')
+    draw.polygon([(1904,187),(1859,274),(1904,252)],fill='white')
 
 
 def class_areas(canvas,bounds,class_count):
@@ -133,9 +141,7 @@ def compose(canvas,bounds,layer,title,target,boundary_ha=None,hillshade_sources=
     draw.text((78,1836),'Classification overlay: 70% opacity' if opacity==179 else 'Classification overlay: full opacity',font=_font(18),fill=INK,anchor='lm')
     draw_scale_bar(draw,view_bounds,image.width/SCALE)
     del image
-    draw.rectangle((1852,128,1956,268),fill='white',outline='#79847d',width=3)
-    draw.text((1904,167),'N',font=_font(27,True),fill=INK,anchor='mm')
-    draw.polygon([(1904,194),(1892,223),(1916,223)],fill=INK)
+    draw_north_arrow(draw)
 
     x0,x1=2092,2928
     mid=(x0+x1)//2
