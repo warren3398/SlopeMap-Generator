@@ -62,7 +62,7 @@ def native_raster(path,field,palette,native_bounds,shape,transform,scratch):
         table,geometry=database.execute('SELECT table_name,column_name FROM gpkg_geometry_columns LIMIT 1').fetchone()
     sql='SELECT '+ident(geometry)+', CASE '+ ' '.join(cases)+' ELSE 0 END AS __slope_burn FROM '+ident(table)
     target=Path(scratch)/'native.tif'
-    command=['gdal_rasterize','-of','GTiff','-ot','Byte','-init','0','-a_nodata','0','-a','__slope_burn','-sql',sql,'-dialect','SQLITE','-te',*[str(v) for v in native_bounds],'-ts',str(shape[1]),str(shape[0]),str(path),str(target)]
+    command=['gdal_rasterize','-optim','VECTOR','-of','GTiff','-ot','Byte','-init','0','-a_nodata','0','-a','__slope_burn','-sql',sql,'-dialect','SQLITE','-te',*[str(v) for v in native_bounds],'-ts',str(shape[1]),str(shape[0]),str(path),str(target)]
     subprocess.run(command,check=True,capture_output=True,timeout=900,env={**os.environ,'GDAL_CACHEMAX':'8','OGR_SQLITE_CACHE':'8'})
     canvas=np.zeros(shape,dtype='uint8')
     with rasterio.open(target) as dataset:
