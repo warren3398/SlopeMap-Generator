@@ -52,7 +52,7 @@ def paint_ocean(image,bounds):
     return shore
 
 
-def draw_shoreline(image,bounds,shore):
+def draw_shoreline(image,bounds,shore,width=2):
     left,bottom,right,top=bounds
     xscale=image.width/(right-left);yscale=image.height/(top-bottom)
     draw=ImageDraw.Draw(image)
@@ -60,4 +60,4 @@ def draw_shoreline(image,bounds,shore):
         for line in shapely.get_parts(geometry):
             if line.geom_type not in ('LineString','LinearRing'):continue
             points=[((x-left)*xscale,(top-y)*yscale) for x,y in line.coords]
-            if len(points)>1:draw.line(points,fill=SHORELINE,width=2)
+            if len(points)>1:draw.line(points,fill=SHORELINE,width=width)

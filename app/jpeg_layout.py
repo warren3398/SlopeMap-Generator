@@ -5,12 +5,13 @@ import importlib.util
 import numpy as np
 from PIL import Image,ImageDraw,ImageFont
 from pyproj import Transformer
+from .layout_units import SCALE,PAGE_SIZE,px,LayoutDraw
 from .hillshade import background as hillshade_background
 from .coast import paint_ocean,draw_shoreline,OCEAN,SHORELINE,CREDIT as COAST_CREDIT
 
 from .export_styles import STYLES,RANGES
 
-LAYOUT_VERSION='compact-r2-ocean-v8'
+LAYOUT_VERSION='4k-r2-ocean-v9'
 GREEN='#005b3c'
 INK='#202d27'
 LINE='#b6c0b9'
@@ -34,6 +35,7 @@ def class_areas(canvas,bounds,class_count):
 
 
 def _font(size,bold=False):
+    size=px(size)
     name='DejaVuSans-Bold.ttf' if bold else 'DejaVuSans.ttf'
     paths=[Path('/usr/share/fonts/truetype/dejavu')/name]
     spec=importlib.util.find_spec('matplotlib')
@@ -85,12 +87,12 @@ def draw_scale_bar(draw,bounds,image_width):
     draw.text((x,y+28),'Scale at map center',font=_font(15),fill=INK,anchor='lm')
 
 
-MAP_SIZE=(1949,1715)
+MAP_SIZE=(px(1949),px(1715))
 
 
 def map_view(bounds,shape):
     """Expand map bounds to fill the frame, preserving the overlay's pixel registration."""
-    scale=min((MAP_SIZE[0]-145)/shape[1],(MAP_SIZE[1]-165)/shape[0])
+    scale=min((MAP_SIZE[0]-px(145))/shape[1],(MAP_SIZE[1]-px(165))/shape[0])
     size=(max(1,round(shape[1]*scale)),max(1,round(shape[0]*scale)))
     offset=((MAP_SIZE[0]-size[0])//2,(MAP_SIZE[1]-size[1])//2)
     left,bottom,right,top=bounds
@@ -107,8 +109,8 @@ def compose(canvas,bounds,layer,title,target,boundary_ha=None,hillshade_sources=
     coverage=100*total/boundary_ha if boundary_ha else None
     if coverage is not None and coverage<50:
         raise ValueError(f'Existing slope source covers only {coverage:.1f}% of the selected area. Complete slope source data is needed for this export.')
-    page=Image.new('RGB',(3000,1880),'white')
-    draw=ImageDraw.Draw(page)
+    page=Image.new('RGB',PAGE_SIZE,'white')
+    draw=LayoutDraw(page)
     draw.rectangle((34,26,2966,1852),outline='#59645d',width=3)
     draw.rectangle((70,60,2024,1780),outline=LINE,width=3)
 
@@ -121,15 +123,15 @@ def compose(canvas,bounds,layer,title,target,boundary_ha=None,hillshade_sources=
     shoreline=paint_ocean(background,view_bounds)
     image=background.convert('RGBA')
     image.alpha_composite(overlay,dest=offset)
-    draw_shoreline(image,view_bounds,shoreline)
+    draw_shoreline(image,view_bounds,shoreline,width=px(2))
     del background,overlay
-    page.paste(image,(73,63),image)
+    page.paste(image,(px(73),px(63)),image)
     imagery_credit=imagery_credit+' | '+COAST_CREDIT
     credit_size=18
     while draw.textlength(imagery_credit,font=_font(credit_size))>1929 and credit_size>11:credit_size-=1
     draw.text((78,1810),imagery_credit,font=_font(credit_size),fill=INK,anchor='lm')
     draw.text((78,1836),'Classification overlay: 70% opacity' if opacity==179 else 'Classification overlay: full opacity',font=_font(18),fill=INK,anchor='lm')
-    draw_scale_bar(draw,view_bounds,image.width)
+    draw_scale_bar(draw,view_bounds,image.width/SCALE)
     del image
     draw.rectangle((1852,128,1956,268),fill='white',outline='#79847d',width=3)
     draw.text((1904,167),'N',font=_font(27,True),fill=INK,anchor='mm')
@@ -190,5 +192,5 @@ def compose(canvas,bounds,layer,title,target,boundary_ha=None,hillshade_sources=
     draw.text((2108,info_y+127),f'Classified area: {total:,.2f} ha (raster estimate; equal-area)',font=_font(18),fill=INK,anchor='lm')
     if coverage is not None:
         draw.text((2108,info_y+155),f'Source coverage: {min(coverage,100):.1f}% of selected boundary',font=_font(18),fill=INK,anchor='lm')
-    page.save(target,format='JPEG',quality=94,dpi=(180,180))
+    page.save(target,format='JPEG',quality=95,subsampling=0,dpi=(300,300))
     return {'areas_ha':areas.tolist(),'total_ha':total,'area_method':'equal-area classified raster estimate'}

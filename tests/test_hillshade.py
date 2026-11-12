@@ -8,6 +8,7 @@ from rasterio.transform import from_bounds
 from rasterio.warp import transform_bounds
 from PIL import Image
 from app import hillshade,jpeg_layout,downloader
+from app.layout_units import px
 
 
 class Store:
@@ -100,7 +101,7 @@ def test_overlay_is_translucent_and_full_frame_has_hillshade(monkeypatch,tmp_pat
     jpeg_layout.compose(np.array([[1,0],[1,0]],dtype='uint8'),(0,0,1000,1000),'slope','Province: Test',target)
     with Image.open(target) as image:
         for point in [(82,72),(2012,72),(82,1768),(2012,1768),(1500,700)]:
-            assert np.max(np.abs(np.array(image.getpixel(point))-[40,40,40]))<=3
+            assert np.max(np.abs(np.array(image.getpixel(tuple(px(v) for v in point)))-[40,40,40]))<=3
         rgb=jpeg_layout.STYLES['slope'][0][2]
         expected=np.array(rgb)*179/255+np.array([40,40,40])*76/255
-        assert np.max(np.abs(np.array(image.getpixel((500,700)))-expected))<=4
+        assert np.max(np.abs(np.array(image.getpixel((px(500),px(700))))-expected))<=4

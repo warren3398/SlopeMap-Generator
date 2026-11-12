@@ -116,7 +116,7 @@ def selection_boundary(level,fid,display=False):
             crs=frame.crs
             if display:
                 bounds=frame.total_bounds
-                tolerance=max(bounds[2]-bounds[0],bounds[3]-bounds[1])/1600/4
+                tolerance=max(bounds[2]-bounds[0],bounds[3]-bounds[1])/2560/4
                 frame.geometry=frame.geometry.simplify(tolerance,preserve_topology=False)
                 release_memory()
             invalid=~frame.geometry.is_valid
@@ -278,7 +278,7 @@ def prepare_file(params):
     if fmt=='jpeg':
         # Discard the full coastline before source rendering; JPEG needs only pixel-scale detail.
         bounds=boundary.total_bounds
-        tolerance=max(bounds[2]-bounds[0],bounds[3]-bounds[1])/1600/4
+        tolerance=max(bounds[2]-bounds[0],bounds[3]-bounds[1])/2560/4
         boundary.geometry=boundary.geometry.simplify(tolerance,preserve_topology=False)
         release_memory()
         staging=folder/'layout.part.jpg'

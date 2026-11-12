@@ -29,7 +29,7 @@ class NoSourceIntersection(ValueError):
     """A selected province part has no polygons in this boundary."""
 
 
-PIXELS = 1600
+PIXELS = 2560
 BATCH_SIZE = 16
 
 

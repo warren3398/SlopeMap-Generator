@@ -81,7 +81,7 @@ def test_all_levels_and_formats_are_direct_downloads(setup,tmp_path,level,fid,fm
     assert response.status_code==200 and 'attachment' in response.headers['content-disposition']
     if fmt=='jpeg':
         image=Image.open(io.BytesIO(response.content));image.verify()
-        assert image.size==(3000,1880)
+        assert image.size==(3840,2406)
         return
     target=tmp_path/('download.'+fmt);target.write_bytes(response.content)
     frame=gpd.read_file('zip://'+str(target) if fmt=='zip' else target)
