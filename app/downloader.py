@@ -110,7 +110,8 @@ def selection_boundary(level,fid):
         geometries=[]
         crs=None
         for province_id,_ in members:
-            frame=gpd.read_file(path,fids=[province_id],columns=[])
+            from .boundary_geometry import read_geometry
+            frame=read_geometry(path,province_id)
             if frame.empty:continue
             crs=frame.crs
             geometries.extend(shapely.make_valid(frame.geometry.array,method='structure',keep_collapsed=False))
@@ -118,11 +119,17 @@ def selection_boundary(level,fid):
         geometry=shapely.union_all(geometries)
         return gpd.GeoDataFrame(geometry=[geometry],crs=crs),REGIONS[code]['name']
     path,_=object_file(level)
-    frame=gpd.read_file(path,fids=[int(fid)])
+    print('SLOPE_BOUNDARY reading',level,fid,flush=True)
+    from .boundary_geometry import read_geometry
+    frame=read_geometry(path,int(fid))
+    print('SLOPE_BOUNDARY read',level,fid,len(frame),flush=True)
     if frame.empty:raise ValueError('Selected administrative boundary was not found.')
-    title=actual_name(frame.iloc[0],level)
+    title=actual_name(attributes(str(path)).loc[int(fid)],level)
     frame=frame[[frame.geometry.name]].copy()
-    frame.geometry=shapely.make_valid(frame.geometry.array,method='structure',keep_collapsed=False)
+    invalid=~frame.geometry.is_valid
+    if invalid.any():
+        print('SLOPE_BOUNDARY repairing',level,fid,flush=True)
+        frame.loc[invalid,frame.geometry.name]=shapely.make_valid(frame.loc[invalid].geometry.array,method='structure',keep_collapsed=False)
     return frame,title
 
 
