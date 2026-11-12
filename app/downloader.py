@@ -101,7 +101,7 @@ def province_rows(region_code):
     return sorted(rows,key=lambda item:item[1])
 
 
-def selection_boundary(level,fid):
+def selection_boundary(level,fid,display=False):
     if level=='region':
         code=str(fid).zfill(9)
         members=province_rows(code)
@@ -114,7 +114,14 @@ def selection_boundary(level,fid):
             frame=read_geometry(path,province_id)
             if frame.empty:continue
             crs=frame.crs
-            geometries.extend(shapely.make_valid(frame.geometry.array,method='structure',keep_collapsed=False))
+            if display:
+                bounds=frame.total_bounds
+                tolerance=max(bounds[2]-bounds[0],bounds[3]-bounds[1])/1600/4
+                frame.geometry=frame.geometry.simplify(tolerance,preserve_topology=False)
+                release_memory()
+            invalid=~frame.geometry.is_valid
+            if invalid.any():frame.loc[invalid,frame.geometry.name]=shapely.make_valid(frame.loc[invalid].geometry.array,method='structure',keep_collapsed=False)
+            geometries.extend(frame.geometry)
         if not geometries or crs is None:raise ValueError('Regional boundary is unavailable.')
         geometry=shapely.union_all(geometries)
         return gpd.GeoDataFrame(geometry=[geometry],crs=crs),REGIONS[code]['name']
@@ -228,7 +235,7 @@ def prepare_file(params):
     from .vector_exports import build_geopackage,shapefile_from_geopackage
     level,fid,fmt=params['level'],params['fid'],params['format']
     print('SLOPE_PREPARE boundary',level,fid,fmt,flush=True)
-    boundary,title=selection_boundary(level,fid)
+    boundary,title=selection_boundary(level,fid,display=(fmt=='jpeg'))
     release_memory()
     print('SLOPE_PREPARE boundary_ready',level,fid,flush=True)
     boundary_ha=float(boundary.to_crs(6933).geometry.area.sum()/10000)
