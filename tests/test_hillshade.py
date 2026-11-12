@@ -56,7 +56,7 @@ def test_overlay_is_translucent_and_nodata_shows_hillshade(monkeypatch,tmp_path)
     target=tmp_path/'basemap.jpg'
     jpeg_layout.compose(np.array([[1,0],[1,0]],dtype='uint8'),(0,0,1000,1000),layer,'Province: Test',target)
     with Image.open(target) as image:
-        for corner in [(115,195),(1992,195),(115,1708),(1992,1708)]:
+        for corner in [(82,72),(2012,72),(82,1768),(2012,1768)]:
             assert np.max(np.abs(np.array(image.getpixel(corner))-[20,40,60]))<=3
         assert np.max(np.abs(np.array(image.getpixel((1500,700)))-[20,40,60]))<=3
         rgb=jpeg_layout.STYLES[layer][0][2]
