@@ -5,11 +5,11 @@ import importlib.util
 import numpy as np
 from PIL import Image,ImageDraw,ImageFont
 from pyproj import Transformer
-from .satellite import background as satellite_background
+from .hillshade import background as hillshade_background
 
 from .export_styles import STYLES,RANGES
 
-LAYOUT_VERSION='framed-satellite-v4'
+LAYOUT_VERSION='framed-hillshade-v5'
 GREEN='#005b3c'
 INK='#202d27'
 LINE='#b6c0b9'
@@ -72,7 +72,8 @@ def draw_scale_bar(draw,bounds,image_width):
     bar=scale_bar(bounds,image_width)
     x,y,width=160,1680,bar['pixels']
     # Reserved bottom margin of the map frame; no map polygons are covered.
-    draw.rectangle((142,1640,610,1716),fill='white')
+    panel_right=max(x+width+draw.textlength(bar['labels'][-1],font=_font(20))/2+12,x+draw.textlength('Scale at map center',font=_font(15))+12)
+    draw.rectangle((142,1640,panel_right,1716),fill='white')
     for segment in range(4):
         draw.rectangle((x+width*segment/4,y,x+width*(segment+1)/4,y+12),fill=INK if segment%2==0 else 'white')
     draw.rectangle((x,y,x+width,y+12),outline=INK,width=2)
@@ -81,6 +82,21 @@ def draw_scale_bar(draw,bounds,image_width):
         draw.line((at,y-4,at,y+16),fill=INK,width=2)
         draw.text((at,y-10),label,font=_font(20),fill=INK,anchor='ms')
     draw.text((x,y+28),'Scale at map center',font=_font(15),fill=INK,anchor='lm')
+
+
+MAP_SIZE=(1895,1535)
+
+
+def map_view(bounds,shape):
+    """Expand map bounds to fill the frame, preserving the overlay's pixel registration."""
+    scale=min(1750/shape[1],1370/shape[0])
+    size=(max(1,round(shape[1]*scale)),max(1,round(shape[0]*scale)))
+    offset=((MAP_SIZE[0]-size[0])//2,(MAP_SIZE[1]-size[1])//2)
+    left,bottom,right,top=bounds
+    xstep=(right-left)/size[0];ystep=(top-bottom)/size[1]
+    west=left-offset[0]*xstep;north=top+offset[1]*ystep
+    view=(west,north-MAP_SIZE[1]*ystep,west+MAP_SIZE[0]*xstep,north)
+    return view,size,offset
 
 
 def compose(canvas,bounds,layer,title,target,boundary_ha=None):
@@ -96,20 +112,21 @@ def compose(canvas,bounds,layer,title,target,boundary_ha=None):
     draw.rectangle((104,180,2004,1720),outline=LINE,width=3)
     draw.text((1054,97),f'{layer.upper()} CLASSIFICATION MAP',font=_font(51,True),fill=INK,anchor='mm')
 
-    shape=canvas.shape
-    scale=min(1750/shape[1],1370/shape[0])
-    size=(max(1,round(shape[1]*scale)),max(1,round(shape[0]*scale)))
-    background,imagery_credit=satellite_background(bounds,size)
+    view_bounds,size,offset=map_view(bounds,canvas.shape)
+    background,imagery_credit=hillshade_background(view_bounds,MAP_SIZE)
     opacity=179 if background is not None else 255
     palette=np.array([(255,255,255,0)]+[tuple(rgb)+(opacity,) for _,_,rgb in styles],dtype='uint8')
     overlay=Image.fromarray(palette[canvas]).resize(size,Image.Resampling.NEAREST)
-    if background is None:background=Image.new('RGB',size,'white')
-    image=Image.alpha_composite(background.convert('RGBA'),overlay)
+    if background is None:background=Image.new('RGB',MAP_SIZE,'white')
+    image=background.convert('RGBA')
+    image.alpha_composite(overlay,dest=offset)
     del background,overlay
-    page.paste(image,(104+(1900-image.width)//2,180+(1540-image.height)//2),image)
-    draw.text((112,1763),imagery_credit,font=_font(18),fill=INK,anchor='lm')
+    page.paste(image,(107,183),image)
+    credit_size=18
+    while draw.textlength(imagery_credit,font=_font(credit_size))>1875 and credit_size>11:credit_size-=1
+    draw.text((112,1763),imagery_credit,font=_font(credit_size),fill=INK,anchor='lm')
     draw.text((112,1792),'Classification overlay: 70% opacity' if opacity==179 else 'Classification overlay: full opacity',font=_font(18),fill=INK,anchor='lm')
-    draw_scale_bar(draw,bounds,image.width)
+    draw_scale_bar(draw,view_bounds,image.width)
     del image
     draw.rectangle((1832,248,1936,388),fill='white',outline='#79847d',width=3)
     draw.text((1884,287),'N',font=_font(27,True),fill=INK,anchor='mm')

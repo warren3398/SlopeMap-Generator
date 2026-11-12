@@ -16,4 +16,4 @@ The Docker service keeps its existing Uvicorn port binding, adds the raster/Pill
 
 Run checks with `pytest -q tests` and `node tests/test_download_ui.js` (test dependencies: pytest and httpx).
 
-JPEGs use Esri World Imagery below a 70% classification overlay, with visible imagery credits. Tile requests have a time and tile-count limit and a local cache. If imagery cannot be fetched, the JPEG clearly reports that it is unavailable and retains a readable classification map. GIS geometry and class-area calculations use the source classification data.
+JPEGs use Esri World Hillshade across the full map frame below a 70% classification overlay, with visible source credits. The view is expanded without cropping the selected area, and its scale bar uses the expanded bounds. Tile requests have a time and tile-count limit and a local cache. If hillshade cannot be fetched, the JPEG clearly reports that it is unavailable and retains a readable classification map. GIS geometry and class-area calculations use the source classification data.

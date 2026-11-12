@@ -1,4 +1,4 @@
-"""Bounded, cached Esri World Imagery tiles aligned to Web Mercator map bounds."""
+"""Bounded, cached Esri World Hillshade tiles aligned to Web Mercator map bounds."""
 from concurrent.futures import ThreadPoolExecutor,as_completed,TimeoutError
 from io import BytesIO
 from math import floor,ceil,log2
@@ -10,15 +10,16 @@ from urllib.request import Request,urlopen
 from PIL import Image
 
 HALF_WORLD=20037508.342789244
-CACHE=Path('/tmp/gis-satellite-tiles')
-CREDIT='Satellite © Esri | Sources: Esri, Vantor, Earthstar Geographics, GIS User Community'
+CACHE=Path('/tmp/gis-hillshade-tiles')
+CREDIT='Hillshade © Esri | Sources: Esri, Vantor, Airbus DS, USGS, NGA, NASA, CGIAR, N Robinson, NCEAS, NLS, OS, NMA, Geodatastyrelsen, Rijkswaterstaat, GSA, Geoland, FEMA, Intermap, GIS user community'
 MAX_TILES=36
 
 
 def tile_plan(bounds,size):
     left,bottom,right,top=bounds
     resolution=max((right-left)/size[0],(top-bottom)/size[1])
-    zoom=max(0,min(19,round(log2(2*HALF_WORLD/(256*resolution)))))
+    # Global hillshade coverage is about 1:72k (z13); finer levels are regional.
+    zoom=max(0,min(13,round(log2(2*HALF_WORLD/(256*resolution)))))
     while True:
         count=2**zoom
         span=2*HALF_WORLD/count
@@ -34,8 +35,8 @@ def tile_plan(bounds,size):
 
 def decode(payload):
     with Image.open(BytesIO(payload)) as image:
-        if image.size!=(256,256):raise ValueError('Unexpected satellite tile dimensions')
-        return image.convert('RGB')
+        if image.size!=(256,256):raise ValueError('Unexpected hillshade tile dimensions')
+        return image.convert('L').convert('RGB')
 
 
 def fetch_tile(zoom,x,y):
@@ -44,10 +45,10 @@ def fetch_tile(zoom,x,y):
     try:
         if time.time()-path.stat().st_mtime<7*86400:return decode(path.read_bytes())
     except (OSError,ValueError):pass
-    url=f'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{zoom}/{y}/{x}'
+    url=f'https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{zoom}/{y}/{x}'
     with urlopen(Request(url,headers={'User-Agent':'GISMapDownloader/1.0'}),timeout=5) as response:
         payload=response.read(2*1024*1024+1)
-    if len(payload)>2*1024*1024:raise ValueError('Satellite tile is too large')
+    if len(payload)>2*1024*1024:raise ValueError('Hillshade tile is too large')
     image=decode(payload)
     staging=path.with_suffix('.part')
     try:staging.write_bytes(payload);staging.replace(path)
@@ -69,7 +70,7 @@ def background(bounds,size):
     """Return a registered RGB image and visible credit/status; never block GIS exports."""
     zoom,(x0,y0,x1,y1),extent=tile_plan(bounds,size)
     mosaic=Image.new('RGB',((x1-x0+1)*256,(y1-y0+1)*256),'#e8ece8')
-    pool=ThreadPoolExecutor(max_workers=4,thread_name_prefix='satellite')
+    pool=ThreadPoolExecutor(max_workers=4,thread_name_prefix='hillshade')
     futures={pool.submit(fetch_tile,zoom,x,y):(x,y) for y in range(y0,y1+1) for x in range(x0,x1+1)}
     received=0
     try:
@@ -79,13 +80,13 @@ def background(bounds,size):
                 x,y=futures[future]
                 mosaic.paste(tile,((x-x0)*256,(y-y0)*256))
                 tile.close();received+=1
-            except Exception:logging.getLogger(__name__).warning('Satellite tile unavailable')
-    except TimeoutError:logging.getLogger(__name__).warning('Satellite background time budget reached')
+            except Exception:logging.getLogger(__name__).warning('Hillshade tile unavailable')
+    except TimeoutError:logging.getLogger(__name__).warning('Hillshade background time budget reached')
     finally:pool.shutdown(wait=False,cancel_futures=True)
     prune_cache()
     if not received:
         mosaic.close()
-        return None,'Satellite imagery unavailable'
+        return None,'Hillshade imagery unavailable'
     left,bottom,right,top=bounds
     xscale=mosaic.width/(extent[2]-extent[0])
     yscale=mosaic.height/(extent[3]-extent[1])

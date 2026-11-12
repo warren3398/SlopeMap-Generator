@@ -1,6 +1,6 @@
 import pytest
 
 @pytest.fixture(autouse=True)
-def offline_satellite(monkeypatch):
+def offline_hillshade(monkeypatch):
     from app import jpeg_layout
-    monkeypatch.setattr(jpeg_layout,'satellite_background',lambda bounds,size:(None,'Satellite imagery unavailable'))
+    monkeypatch.setattr(jpeg_layout,'hillshade_background',lambda bounds,size:(None,'Hillshade unavailable'))

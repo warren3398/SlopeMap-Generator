@@ -21,7 +21,7 @@ select{width:100%;padding:12px;border:1px solid #b9cdc0;border-radius:9px;backgr
 <div><label for="barangay">Barangay (optional)</label><select id="barangay" disabled><option value="">All barangays</option></select></div>
 </div><div id="status" class="status" role="status" aria-live="polite">Loading region catalog…</div>
 <div class="actions"><button data-format="jpeg" disabled>Download Layout JPEG</button><button data-format="zip" disabled>Download Shapefile ZIP</button><button data-format="gpkg" disabled>Download GeoPackage</button></div>
-<p class="note">Leave Province blank to download the selected region. Choose a province, municipality, or barangay for a smaller area. Files are prepared automatically, then downloaded. JPEG includes satellite imagery beneath a 70% classification overlay, a legend, scale bar, and area summary. Downloads use the available source slope data; unavailable coverage is reported explicitly.</p>
+<p class="note">Leave Province blank to download the selected region. Choose a province, municipality, or barangay for a smaller area. Files are prepared automatically, then downloaded. JPEG includes hillshade across the full map frame beneath a 70% classification overlay, a legend, scale bar, and area summary. Downloads use the available source slope data; unavailable coverage is reported explicitly.</p>
 <iframe id="download-frame" title="Download response" hidden></iframe>
 </section></main>
 <script>
