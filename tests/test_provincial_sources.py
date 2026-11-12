@@ -111,3 +111,16 @@ def test_large_jpeg_sources_are_simplified_by_gdal_before_loading(setup,tmp_path
     monkeypatch.setattr(jpeg_layout,'compose',lambda canvas,*args,**kwargs:{'pixels':int(np.count_nonzero(canvas))})
     result=raster_exports.render_region(service.LocalSource(selected),'data',selected,'slope',title,tmp_path/'unused.jpg',service.ROOT/'rasters',boundary=boundary)
     assert result['pixels']>0
+
+
+def test_jpeg_masks_pixels_outside_nonrectangular_boundary(setup,tmp_path):
+    from app import raster_exports
+    from shapely.geometry import Polygon
+    client,paths,_,storage=setup
+    boundary=gpd.GeoDataFrame(geometry=[Polygon([(120,16),(120.2,16),(120,16.2),(120,16)])],crs=4326)
+    selected=sources.select_sources('province','1')[0]
+    pixels,bounds=raster_exports.province_raster(service.LocalSource([selected]),'data',selected,'slope',service.ROOT/'rasters',boundary=boundary)
+    assert pixels.any()
+    x,y=Transformer.from_crs(4326,3857,always_xy=True).transform(120.17,16.17)
+    row=int((bounds[3]-y)/(bounds[3]-bounds[1])*pixels.shape[0]);column=int((x-bounds[0])/(bounds[2]-bounds[0])*pixels.shape[1])
+    assert pixels[row,column]==0

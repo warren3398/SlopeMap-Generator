@@ -48,7 +48,7 @@ def class_code(value):
 
 
 def province_raster(storage, bucket, source, layer, cache, boundary=None):
-    identity = json.dumps(['raster-v1', layer, source['Key'], source.get('ETag'), str(source.get('LastModified', '')), PIXELS])
+    identity = json.dumps(['raster-v2-mask', layer, source['Key'], source.get('ETag'), str(source.get('LastModified', '')), PIXELS])
     if boundary is not None:
         fingerprint = hashlib.sha256(b''.join(boundary.to_crs(4326).geometry.to_wkb())).hexdigest()
         identity += '|clip-v1|' + fingerprint
@@ -102,7 +102,7 @@ def province_raster(storage, bucket, source, layer, cache, boundary=None):
             or native_bounds[3]<source_bounds[1] or native_bounds[1]>source_bounds[3]):
             raise NoSourceIntersection('Outside source coverage: the uploaded slope GeoPackage does not cover this selected area.')
         batch_size=BATCH_SIZE
-        if source.get('Size',0)>128*1024*1024:
+        if source.get('Size',0)>8*1024*1024:
             # GDAL simplifies one feature at a time before Python receives geometry.
             # Large source polygons otherwise create concurrent OGR/WKB/GEOS copies.
             display_path=Path(scratch)/'display.gpkg'
@@ -110,7 +110,7 @@ def province_raster(storage, bucket, source, layer, cache, boundary=None):
             if clip is not None:command.extend(['-spat',*[str(value) for value in native_bounds]])
             subprocess.run(command,check=True,capture_output=True,timeout=900,env={**os.environ,'GDAL_CACHEMAX':'8','OGR_SQLITE_CACHE':'8'})
             path=display_path
-            batch_size=128
+            batch_size=1024
             from .memory_utils import release_memory
             release_memory()
         canvas = np.zeros(shape, dtype='uint8')
@@ -131,7 +131,8 @@ def province_raster(storage, bucket, source, layer, cache, boundary=None):
                 invalid = ~frame.geometry.is_valid
                 if invalid.any():
                     frame.loc[invalid, frame.geometry.name] = shapely.make_valid(frame.loc[invalid].geometry.array,method='structure',keep_collapsed=False)
-                frame = gpd.clip(frame, clip, keep_geom_type=True)
+                # Clip the completed image once; per-feature vector intersections
+                # are unnecessary for a fixed-resolution JPEG.
             frame = frame.to_crs(3857)
             if frame.empty:
                 continue
@@ -146,6 +147,10 @@ def province_raster(storage, bucket, source, layer, cache, boundary=None):
             release_memory(full=False)
             if offset % (BATCH_SIZE*40) < batch_count:
                 print('REGIONAL_JPEG raster', source['Key'], offset, '/', info['features'], flush=True)
+        if clip is not None:
+            mask=rasterize(((geometry,1) for geometry in clip.to_crs(3857).geometry),out_shape=shape,transform=transform,fill=0,dtype='uint8')
+            canvas[mask==0]=0
+            del mask
         if matched_polygons == 0:
             raise NoSourceIntersection('No slope polygons intersect this boundary in the uploaded GeoPackage.')
         if classified_polygons == 0:
