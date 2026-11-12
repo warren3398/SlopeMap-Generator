@@ -111,7 +111,7 @@ def test_large_jpeg_sources_are_rasterized_by_gdal_without_loading_geometry(setu
     monkeypatch.setattr(jpeg_layout,'compose',lambda canvas,bounds,*args,**kwargs:{'canvas':canvas,'bounds':bounds})
     result=raster_exports.render_region(service.LocalSource(selected),'data',selected,'slope',title,tmp_path/'unused.jpg',service.ROOT/'rasters',boundary=boundary)
     canvas,bounds=result['canvas'],result['bounds']
-    assert set(np.unique(canvas))=={0,1,6}
+    assert set(np.unique(canvas))=={1,6}
     for latitude,expected in [(10.25,6),(8.5,1)]:
         x,y=Transformer.from_crs(4326,3857,always_xy=True).transform(119,latitude)
         row=int((bounds[3]-y)/(bounds[3]-bounds[1])*canvas.shape[0]);column=int((x-bounds[0])/(bounds[2]-bounds[0])*canvas.shape[1])
