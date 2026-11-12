@@ -184,7 +184,7 @@ def province_raster(storage, bucket, source, layer, cache, boundary=None):
     return canvas, bounds
 
 
-def render_region(storage, bucket, sources, layer, title, target, cache, boundary=None, boundary_ha=None):
+def render_region(storage, bucket, sources, layer, title, target, cache, boundary=None, boundary_ha=None, hillshade_sources=None):
     from .memory_utils import release_memory
     from .jpeg_layout import compose
 
@@ -208,4 +208,4 @@ def render_region(storage, bucket, sources, layer, title, target, cache, boundar
         raise ValueError('No classified slope data is available in the selected area.')
     del rasters,projected,visible,pixels
     release_memory()
-    return compose(canvas,bounds,layer,title,target,boundary_ha=boundary_ha if boundary_ha is not None else float(boundary.to_crs(6933).geometry.area.sum()/10000) if boundary is not None else None)
+    return compose(canvas,bounds,layer,title,target,hillshade_sources=hillshade_sources,boundary_ha=boundary_ha if boundary_ha is not None else float(boundary.to_crs(6933).geometry.area.sum()/10000) if boundary is not None else None)

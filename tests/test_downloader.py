@@ -18,7 +18,7 @@ class Body(io.BytesIO):
 
 class Storage:
     def __init__(self):self.objects={};self.files={};self.versions={}
-    def get_object(self,Bucket,Key):return {'Body':Body(self.objects[Key])}
+    def get_object(self,Bucket,Key,**kwargs):return {'Body':Body(self.objects[Key])}
     def put_object(self,Bucket,Key,Body,**kwargs):self.objects[Key]=Body
     def upload_file(self,path,bucket,key,**kwargs):self.objects[key]=Path(path).read_bytes()
     def get_paginator(self,name):return self
@@ -184,3 +184,19 @@ def test_partial_coverage_is_reported_with_ready_download(setup):
 def test_independent_city_names_match_the_shared_region_catalog():
     assert service.canonical('City of Cotabato')=='cotabato-city'
     assert service.canonical('City of Isabela')=='isabela-city'
+
+
+def test_uploaded_hillshade_update_invalidates_jpeg_but_reuses_classification_raster(setup,monkeypatch):
+    from app import hillshade
+    client,_,_,_=setup
+    source={'Key':'hillshade/provinces/Abra_hillshade.tif','Size':100,'ETag':'first','LastModified':'test'}
+    monkeypatch.setattr(hillshade,'catalog',lambda:[dict(source)])
+    params=dict(level='municipality',fid='1',format='jpeg')
+    first=ready(client,params)
+    first_path=Path(service.JOBS[first['download_url'].split('/')[-1]]['path'])
+    rasters=list((service.ROOT/'rasters').glob('*.npz'))
+    source['ETag']='updated'
+    second=ready(client,params)
+    second_path=Path(service.JOBS[second['download_url'].split('/')[-1]]['path'])
+    assert first_path.parent!=second_path.parent
+    assert rasters==list((service.ROOT/'rasters').glob('*.npz'))

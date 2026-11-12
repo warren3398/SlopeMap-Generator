@@ -9,7 +9,7 @@ from .hillshade import background as hillshade_background
 
 from .export_styles import STYLES,RANGES
 
-LAYOUT_VERSION='compact-hillshade-v6'
+LAYOUT_VERSION='compact-r2-hillshade-v7'
 GREEN='#005b3c'
 INK='#202d27'
 LINE='#b6c0b9'
@@ -99,7 +99,7 @@ def map_view(bounds,shape):
     return view,size,offset
 
 
-def compose(canvas,bounds,layer,title,target,boundary_ha=None):
+def compose(canvas,bounds,layer,title,target,boundary_ha=None,hillshade_sources=None):
     styles=STYLES[layer]
     areas=class_areas(canvas,bounds,len(styles))
     total=float(areas.sum())
@@ -112,7 +112,7 @@ def compose(canvas,bounds,layer,title,target,boundary_ha=None):
     draw.rectangle((70,60,2024,1780),outline=LINE,width=3)
 
     view_bounds,size,offset=map_view(bounds,canvas.shape)
-    background,imagery_credit=hillshade_background(view_bounds,MAP_SIZE)
+    background,imagery_credit=hillshade_background(view_bounds,MAP_SIZE,sources=hillshade_sources)
     opacity=179 if background is not None else 255
     palette=np.array([(255,255,255,0)]+[tuple(rgb)+(opacity,) for _,_,rgb in styles],dtype='uint8')
     overlay=Image.fromarray(palette[canvas]).resize(size,Image.Resampling.NEAREST)

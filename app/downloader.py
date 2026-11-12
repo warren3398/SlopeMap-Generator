@@ -256,7 +256,13 @@ def prepare_file(params):
     sources=select_sources(level,fid)
     print('SLOPE_PREPARE sources_ready',len(sources),flush=True)
     fingerprint=hashlib.sha256(b''.join(boundary.to_crs(4326).geometry.to_wkb())).hexdigest()
-    identity=json.dumps(['provincial-v3',level,fid,sources,fingerprint],sort_keys=True)
+    identity_data=['provincial-v3',level,fid,sources,fingerprint]
+    hillshade_sources=None
+    if fmt=='jpeg':
+        from .hillshade import catalog
+        hillshade_sources=catalog()
+        identity_data.append(hillshade_sources)
+    identity=json.dumps(identity_data,sort_keys=True)
     digest=hashlib.sha256(identity.encode()).hexdigest()
     folder=ROOT/'exports'/digest;folder.mkdir(parents=True,exist_ok=True)
     ext={'jpeg':'jpg','zip':'zip','gpkg':'gpkg'}[fmt]
@@ -276,7 +282,7 @@ def prepare_file(params):
         boundary.geometry=boundary.geometry.simplify(tolerance,preserve_topology=False)
         release_memory()
         staging=folder/'layout.part.jpg'
-        try:metadata=render_region(storage,r2gis.BUCKET,sources,'slope',location_title(level,fid),staging,ROOT/'rasters',boundary=boundary,boundary_ha=boundary_ha)
+        try:metadata=render_region(storage,r2gis.BUCKET,sources,'slope',location_title(level,fid),staging,ROOT/'rasters',boundary=boundary,boundary_ha=boundary_ha,hillshade_sources=hillshade_sources)
         except Exception:staging.unlink(missing_ok=True);raise
         staging.replace(target)
         metadata.update(coverage_pct=metadata['total_ha']/boundary_ha*100,boundary_ha=boundary_ha,name=title)
@@ -340,6 +346,13 @@ def slope_coverage(level:str,fid:str):
         logging.exception('Slope coverage preflight failed')
         raise HTTPException(503,'Slope coverage check is temporarily unavailable.')
 
+@router.get('/api/hillshade-sources')
+def hillshade_sources_info():
+    from .hillshade import catalog
+    sources=catalog()
+    return {'provider':'uploaded-provincial-geotiffs','file_count':len(sources),'sources':sources}
+
+
 @router.post('/api/prepare-download')
 def start_download(data:dict=Body(...)):
     level=str(data.get('level',''));fid=str(data.get('fid',''));fmt=str(data.get('format',''))
@@ -374,7 +387,11 @@ def download_file(job_id:str):
     path=Path(job['path'])
     if not path.exists():raise HTTPException(404,'Prepared download has expired. Please retry.')
     media={'jpeg':'image/jpeg','zip':'application/zip','gpkg':'application/geopackage+sqlite3'}[job['params']['format']]
-    return FileResponse(path,filename=job['name'],media_type=media)
+    headers={}
+    if job['params']['format']=='jpeg':
+        from .jpeg_layout import LAYOUT_VERSION
+        headers={'X-Map-Layout':LAYOUT_VERSION,'X-Hillshade-Source':'r2-provincial'}
+    return FileResponse(path,filename=job['name'],media_type=media,headers=headers)
 
 
 @router.get('/api/slope-sources')

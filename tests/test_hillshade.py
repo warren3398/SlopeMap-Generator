@@ -1,64 +1,105 @@
 from io import BytesIO
+from pathlib import Path
+import shutil
 import numpy as np
 import pytest
+import rasterio
+from rasterio.transform import from_bounds
+from rasterio.warp import transform_bounds
 from PIL import Image
-from app import hillshade as basemap,jpeg_layout
+from app import hillshade,jpeg_layout,downloader
 
 
-def test_tile_mosaic_is_registered_and_north_is_up(monkeypatch):
-    calls=[]
-    def tile(z,x,y):
-        calls.append((z,x,y));middle=2**z/2
-        color=(200,0,0) if x<middle and y<middle else (0,200,0) if y<middle else (0,0,200) if x<middle else (200,200,0)
-        return Image.new('RGB',(256,256),color)
-    monkeypatch.setattr(basemap,'fetch_tile',tile)
-    image,credit=basemap.background((-1000,-1000,1000,1000),(512,512))
-    assert image.getpixel((20,20))==(200,0,0)
-    assert image.getpixel((490,20))==(0,200,0)
-    assert image.getpixel((20,490))==(0,0,200)
-    assert image.getpixel((490,490))==(200,200,0)
-    assert len(calls)<=basemap.MAX_TILES
-    assert 'Esri' in credit and 'unavailable' not in credit
+class Store:
+    def __init__(self):self.files={};self.versions={};self.ranges=[];self.downloads=[]
+    def get_paginator(self,name):return self
+    def paginate(self,Bucket,Prefix):
+        return [{'Contents':[{'Key':key,'Size':path.stat().st_size,'ETag':self.versions.get(key,'v1'),'LastModified':'test'} for key,path in self.files.items() if key.startswith(Prefix)]}]
+    def get_object(self,Bucket,Key,Range):
+        self.ranges.append(Key)
+        limit=int(Range.split('-')[-1])+1
+        return {'Body':BytesIO(self.files[Key].read_bytes()[:limit])}
+    def download_file(self,bucket,key,target,**kwargs):self.downloads.append(key);shutil.copyfile(self.files[key],target)
 
 
-@pytest.mark.parametrize('bounds',[(-20037508,-20037508,20037508,20037508),(13000000,500000,14000000,2200000),(0,0,20,20)])
-def test_tile_requests_stay_bounded(bounds):
-    zoom,(x0,y0,x1,y1),extent=basemap.tile_plan(bounds,(1750,1370))
-    assert (x1-x0+1)*(y1-y0+1)<=basemap.MAX_TILES
-    assert 0<=zoom<=13
-    assert extent[0]<=bounds[0] and extent[2]>=bounds[2]
-    assert extent[1]<=bounds[1] and extent[3]>=bounds[3]
+@pytest.fixture
+def store(tmp_path,monkeypatch):
+    storage=Store()
+    monkeypatch.setattr(hillshade.r2gis,'client',lambda:storage)
+    monkeypatch.setattr(downloader,'ROOT',tmp_path/'cache')
+    return storage
 
 
-def test_provider_failure_returns_visible_status(monkeypatch):
-    def unavailable(*args):raise OSError('offline')
-    monkeypatch.setattr(basemap,'fetch_tile',unavailable)
-    image,credit=basemap.background((-1000,-1000,1000,1000),(256,256))
-    assert image is None and 'unavailable' in credit
+def raster(store,tmp_path,name,bounds,value=100,crs='EPSG:3857',data=None):
+    path=tmp_path/(name+'.tif')
+    array=np.full((4,4),value,dtype='uint8') if data is None else data
+    with rasterio.open(path,'w',driver='GTiff',width=array.shape[1],height=array.shape[0],count=1,dtype='uint8',nodata=255,crs=crs,transform=from_bounds(*bounds,array.shape[1],array.shape[0])) as output:output.write(array,1)
+    key=hillshade.PREFIX+name+'_hillshade.tif';store.files[key]=path
+    return key
 
 
-def test_hillshade_tiles_are_cached(monkeypatch,tmp_path):
-    payload=BytesIO();Image.new('RGB',(256,256),(20,40,60)).save(payload,format='JPEG')
-    calls=[]
-    def response(*args,**kwargs):calls.append(args[0].full_url);return BytesIO(payload.getvalue())
-    monkeypatch.setattr(basemap,'CACHE',tmp_path)
-    monkeypatch.setattr(basemap,'urlopen',response)
-    first=basemap.fetch_tile(1,1,1);second=basemap.fetch_tile(1,1,1)
-    assert first.size==second.size==(256,256) and len(calls)==1
-    assert '/Elevation/World_Hillshade/' in calls[0]
-    pixel=first.getpixel((100,100))
-    assert pixel[0]==pixel[1]==pixel[2]
+def test_only_intersecting_provinces_download_and_neighbors_fill_frame(store,tmp_path):
+    west=raster(store,tmp_path,'West',(0,0,400,400),100)
+    east=raster(store,tmp_path,'East',(400,0,800,400),180)
+    far=raster(store,tmp_path,'Far',(2000,2000,2400,2400),20)
+    image,credit=hillshade.background((-100,-100,900,500),(1000,600))
+    assert image.getpixel((250,200))==(100,100,100)
+    assert image.getpixel((700,200))==(180,180,180)
+    assert image.getpixel((20,20))==(240,240,240)
+    assert set(store.downloads)=={west,east} and far in store.ranges
+    assert 'uploaded provincial' in credit and 'Esri' not in credit
 
 
-def test_overlay_is_translucent_and_nodata_shows_hillshade(monkeypatch,tmp_path):
-    monkeypatch.setattr(jpeg_layout,'hillshade_background',lambda bounds,size:(Image.new('RGB',size,(20,40,60)),basemap.CREDIT))
-    layer='slope'
-    target=tmp_path/'basemap.jpg'
-    jpeg_layout.compose(np.array([[1,0],[1,0]],dtype='uint8'),(0,0,1000,1000),layer,'Province: Test',target)
+def test_nodata_does_not_overwrite_neighbors_and_black_is_valid(store,tmp_path):
+    data=np.full((4,4),100,dtype='uint8');data[1,1]=255;data[2,2]=0
+    raster(store,tmp_path,'A',(0,0,400,400),data=data)
+    raster(store,tmp_path,'B',(0,0,400,400),180)
+    image,_=hillshade.background((0,0,400,400),(4,4))
+    assert image.getpixel((0,0))==(100,100,100)
+    assert image.getpixel((1,1))==(180,180,180)
+    assert image.getpixel((2,2))==(0,0,0)
+
+
+@pytest.mark.parametrize('crs,bounds',[('EPSG:4326',(120,15,120.1,15.1)),('ESRI:102457',(679253,1004074,700505,1023902))])
+def test_raster_native_crs_is_reprojected_to_map(store,tmp_path,crs,bounds):
+    raster(store,tmp_path,'Native',bounds,80,crs=crs)
+    source=hillshade.catalog()[0]
+    info=hillshade.metadata(source)
+    expected=transform_bounds(crs,'EPSG:3857',*bounds,densify_pts=21)
+    assert info['bounds']==pytest.approx(expected)
+    image,_=hillshade.background(expected,(32,32))
+    assert image.getpixel((16,16))==(80,80,80)
+
+
+def test_file_and_header_cache_are_invalidated_by_etag(store,tmp_path):
+    key=raster(store,tmp_path,'Versioned',(0,0,400,400),90)
+    first=hillshade.catalog()[0]
+    image,_=hillshade.background((0,0,400,400),(4,4))
+    ranges=len(store.ranges)
+    hillshade.background((0,0,400,400),(4,4))
+    assert len(store.ranges)==ranges and store.downloads==[key]
+    store.versions[key]='v2'
+    raster(store,tmp_path,'Versioned',(0,0,400,400),210)
+    second=hillshade.catalog()[0]
+    image,_=hillshade.background((0,0,400,400),(4,4))
+    assert hillshade.cache_paths(first)!=hillshade.cache_paths(second)
+    assert image.getpixel((1,1))==(210,210,210)
+    assert store.downloads==[key,key]
+
+
+def test_missing_coverage_is_reported_without_other_basemap(store,tmp_path):
+    raster(store,tmp_path,'Far',(2000,2000,2400,2400),20)
+    image,credit=hillshade.background((0,0,100,100),(4,4))
+    assert image is None and 'does not cover' in credit and store.downloads==[]
+
+
+def test_overlay_is_translucent_and_full_frame_has_hillshade(monkeypatch,tmp_path):
+    monkeypatch.setattr(jpeg_layout,'hillshade_background',lambda bounds,size,**kwargs:(Image.new('RGB',size,(40,40,40)),hillshade.CREDIT))
+    target=tmp_path/'hillshade.jpg'
+    jpeg_layout.compose(np.array([[1,0],[1,0]],dtype='uint8'),(0,0,1000,1000),'slope','Province: Test',target)
     with Image.open(target) as image:
-        for corner in [(82,72),(2012,72),(82,1768),(2012,1768)]:
-            assert np.max(np.abs(np.array(image.getpixel(corner))-[20,40,60]))<=3
-        assert np.max(np.abs(np.array(image.getpixel((1500,700)))-[20,40,60]))<=3
-        rgb=jpeg_layout.STYLES[layer][0][2]
-        expected=np.array(rgb)*179/255+np.array([20,40,60])*76/255
+        for point in [(82,72),(2012,72),(82,1768),(2012,1768),(1500,700)]:
+            assert np.max(np.abs(np.array(image.getpixel(point))-[40,40,40]))<=3
+        rgb=jpeg_layout.STYLES['slope'][0][2]
+        expected=np.array(rgb)*179/255+np.array([40,40,40])*76/255
         assert np.max(np.abs(np.array(image.getpixel((500,700)))-expected))<=4
