@@ -21,8 +21,12 @@ from rasterio.warp import reproject, Resampling
 
 from .export_styles import STYLES, classify, find_field
 
+class NoSourceIntersection(ValueError):
+    """A selected province part has no polygons in this boundary."""
+
+
 PIXELS = 1600
-BATCH_SIZE = 256
+BATCH_SIZE = 16
 
 
 def grid(bounds):
@@ -94,7 +98,7 @@ def province_raster(storage, bucket, source, layer, cache, boundary=None):
         source_bounds=info['total_bounds']
         if (native_bounds[2]<source_bounds[0] or native_bounds[0]>source_bounds[2]
             or native_bounds[3]<source_bounds[1] or native_bounds[1]>source_bounds[3]):
-            raise ValueError('Outside source coverage: the uploaded slope GeoPackage does not cover this selected area.')
+            raise NoSourceIntersection('Outside source coverage: the uploaded slope GeoPackage does not cover this selected area.')
         canvas = np.zeros(shape, dtype='uint8')
         offset = 0
         matched_polygons = 0
@@ -124,10 +128,12 @@ def province_raster(storage, bucket, source, layer, cache, boundary=None):
             with rasterio.Env(GDAL_CACHEMAX=8*1024*1024):
                 rasterize(zip(frame.geometry, values), out=canvas, transform=transform)
             del frame, values
+            from .memory_utils import release_memory
+            release_memory(full=False)
             if offset % (BATCH_SIZE*40) < batch_count:
                 print('REGIONAL_JPEG raster', source['Key'], offset, '/', info['features'], flush=True)
         if matched_polygons == 0:
-            raise ValueError('No slope polygons intersect this boundary in the uploaded GeoPackage.')
+            raise NoSourceIntersection('No slope polygons intersect this boundary in the uploaded GeoPackage.')
         if classified_polygons == 0:
             raise ValueError('Slope polygons intersect the boundary, but none has a recognized slope class (A–F). Check the source classification values.')
     print('REGIONAL_JPEG raster complete', source['Key'], round(time.monotonic()-started, 2), 'seconds', flush=True)
@@ -147,7 +153,11 @@ def render_region(storage, bucket, sources, layer, title, target, cache, boundar
     from .memory_utils import release_memory
     from .jpeg_layout import compose
 
-    rasters = [province_raster(storage, bucket, source, layer, cache, boundary=boundary) for source in sources]
+    rasters = []
+    for source in sources:
+        try:rasters.append(province_raster(storage,bucket,source,layer,cache,boundary=boundary))
+        except NoSourceIntersection:continue
+    if not rasters:raise ValueError('No classified slope data is available in the selected area.')
     bounds = (min(b[0] for _, b in rasters), min(b[1] for _, b in rasters), max(b[2] for _, b in rasters), max(b[3] for _, b in rasters))
     shape, transform = grid(bounds)
     canvas = np.zeros(shape, dtype='uint8')

@@ -220,11 +220,15 @@ def prepare_file(params):
     from .raster_exports import render_region
     from .vector_exports import build_geopackage,shapefile_from_geopackage
     level,fid,fmt=params['level'],params['fid'],params['format']
+    print('SLOPE_PREPARE boundary',level,fid,fmt,flush=True)
     boundary,title=selection_boundary(level,fid)
+    release_memory()
+    print('SLOPE_PREPARE boundary_ready',level,fid,flush=True)
     boundary_ha=float(boundary.to_crs(6933).geometry.area.sum()/10000)
     if boundary_ha<=0:raise ValueError('Selected boundary is empty.')
     from .slope_sources import select_sources
     sources=select_sources(level,fid)
+    print('SLOPE_PREPARE sources_ready',len(sources),flush=True)
     fingerprint=hashlib.sha256(b''.join(boundary.to_crs(4326).geometry.to_wkb())).hexdigest()
     identity=json.dumps(['provincial-v3',level,fid,sources,fingerprint],sort_keys=True)
     digest=hashlib.sha256(identity.encode()).hexdigest()
@@ -236,6 +240,8 @@ def prepare_file(params):
     if target.exists() or restore(prefix+target.name,target):
         if not (folder/'coverage.json').exists():restore(prefix+'coverage.json',folder/'coverage.json')
         return target,filename
+    release_memory()
+    print('SLOPE_PREPARE export_start',fmt,flush=True)
     storage=LocalSource(sources)
     if fmt=='jpeg':
         staging=folder/'layout.part.jpg'

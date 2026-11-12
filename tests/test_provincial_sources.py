@@ -90,3 +90,13 @@ def test_uploaded_file_availability_replaces_retired_master_extent_check(setup,t
     assert [item['Key'] for item in sources.select_sources('municipality','3')]==['slope/Nueva_Vizcaya_slope.gpkg']
     result=ready(client,dict(level='municipality',fid='3',format='gpkg'))
     assert result['status']=='ready',result
+
+
+def test_jpeg_skips_parts_outside_selected_municipality(setup,tmp_path,monkeypatch):
+    from app import raster_exports,jpeg_layout
+    storage=add_palawan(setup,tmp_path,duplicate=False)
+    boundary=gpd.GeoDataFrame(geometry=[box(118,11,120,12)],crs=4326)
+    selected=sources.select_sources('province','3')
+    monkeypatch.setattr(jpeg_layout,'compose',lambda canvas,*args,**kwargs: {'pixels':int(np.count_nonzero(canvas))})
+    result=raster_exports.render_region(service.LocalSource(selected),'data',selected,'slope','North municipality',tmp_path/'unused.jpg',service.ROOT/'rasters',boundary=boundary)
+    assert result['pixels']>0
