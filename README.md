@@ -15,3 +15,5 @@ Geometry processing is serialized, spatially filtered and batched. Invalid polyg
 The Docker service keeps its existing Uvicorn port binding, adds the raster/Pillow dependencies and DejaVu fonts, and starts Uvicorn with `exec`. Existing preprocessing workflows and legacy endpoints remain available; the new page does not depend on them.
 
 Run checks with `pytest -q tests` and `node tests/test_download_ui.js` (test dependencies: pytest and httpx).
+
+JPEGs use Esri World Imagery below a 70% classification overlay, with visible imagery credits. Tile requests have a time and tile-count limit and a local cache. If imagery cannot be fetched, the JPEG clearly reports that it is unavailable and retains a readable classification map. GIS geometry and class-area calculations use the source classification data.

@@ -5,10 +5,11 @@ import importlib.util
 import numpy as np
 from PIL import Image,ImageDraw,ImageFont
 from pyproj import Transformer
+from .satellite import background as satellite_background
 
 from .export_styles import STYLES,RANGES
 
-LAYOUT_VERSION='framed-scale-v3'
+LAYOUT_VERSION='framed-satellite-v4'
 GREEN='#005b3c'
 INK='#202d27'
 LINE='#b6c0b9'
@@ -95,11 +96,19 @@ def compose(canvas,bounds,layer,title,target,boundary_ha=None):
     draw.rectangle((104,180,2004,1720),outline=LINE,width=3)
     draw.text((1054,97),f'{layer.upper()} CLASSIFICATION MAP',font=_font(51,True),fill=INK,anchor='mm')
 
-    palette=np.array([(255,255,255,0)]+[tuple(rgb)+(255,) for _,_,rgb in styles],dtype='uint8')
-    image=Image.fromarray(palette[canvas])
-    scale=min(1750/image.width,1370/image.height)
-    image=image.resize((max(1,round(image.width*scale)),max(1,round(image.height*scale))),Image.Resampling.NEAREST)
+    shape=canvas.shape
+    scale=min(1750/shape[1],1370/shape[0])
+    size=(max(1,round(shape[1]*scale)),max(1,round(shape[0]*scale)))
+    background,imagery_credit=satellite_background(bounds,size)
+    opacity=179 if background is not None else 255
+    palette=np.array([(255,255,255,0)]+[tuple(rgb)+(opacity,) for _,_,rgb in styles],dtype='uint8')
+    overlay=Image.fromarray(palette[canvas]).resize(size,Image.Resampling.NEAREST)
+    if background is None:background=Image.new('RGB',size,'white')
+    image=Image.alpha_composite(background.convert('RGBA'),overlay)
+    del background,overlay
     page.paste(image,(104+(1900-image.width)//2,180+(1540-image.height)//2),image)
+    draw.text((112,1763),imagery_credit,font=_font(18),fill=INK,anchor='lm')
+    draw.text((112,1792),'Classification overlay: 70% opacity' if opacity==179 else 'Classification overlay: full opacity',font=_font(18),fill=INK,anchor='lm')
     draw_scale_bar(draw,bounds,image.width)
     del image
     draw.rectangle((1832,248,1936,388),fill='white',outline='#79847d',width=3)
