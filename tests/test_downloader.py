@@ -17,10 +17,14 @@ class Body(io.BytesIO):
         while chunk:=self.read(chunk_size):yield chunk
 
 class Storage:
-    def __init__(self):self.objects={}
+    def __init__(self):self.objects={};self.files={};self.versions={}
     def get_object(self,Bucket,Key):return {'Body':Body(self.objects[Key])}
     def put_object(self,Bucket,Key,Body,**kwargs):self.objects[Key]=Body
     def upload_file(self,path,bucket,key,**kwargs):self.objects[key]=Path(path).read_bytes()
+    def get_paginator(self,name):return self
+    def paginate(self,Bucket,Prefix):
+        return [{'Contents':[{'Key':key,'Size':path.stat().st_size,'ETag':self.versions.get('slope','test'),'LastModified':'test'} for key,path in sorted(self.files.items()) if key.startswith(Prefix)]}]
+    def download_file(self,bucket,key,target,**kwargs):shutil.copyfile(self.files[key],target)
 
 @pytest.fixture
 def setup(tmp_path,monkeypatch):
@@ -37,6 +41,8 @@ def setup(tmp_path,monkeypatch):
     versions={kind:kind+'-test' for kind in paths}
     def object_file(kind):return paths[kind],{'Key':service.r2gis.KEYS[kind],'ETag':versions[kind],'LastModified':'test'}
     storage=Storage()
+    storage.files={'slope/Abra_slope.gpkg':paths['slope'],'slope/Benguet_slope.gpkg':paths['slope']}
+    storage.versions=versions
     monkeypatch.setattr(service,'ROOT',tmp_path/'cache')
     monkeypatch.setattr(service,'object_file',object_file)
     monkeypatch.setattr(service.r2gis,'client',lambda:storage)
@@ -159,7 +165,7 @@ def test_invalid_polygons_are_repaired_for_vector_clipping(setup,tmp_path):
     gpd.GeoDataFrame({'Slope_Class':['A']},geometry=[polygon],crs=4326).to_file(paths['slope'],driver='GPKG')
     boundary,_=service.selection_boundary('province','1')
     target=tmp_path/'repaired.gpkg'
-    metadata=build_geopackage(service.LocalSource(paths['slope']),'data',[{'Key':'slope/test.gpkg'}],'slope',boundary,target)
+    metadata=build_geopackage(service.LocalSource([{'Key':'slope/Abra_slope.gpkg'}]),'data',[{'Key':'slope/Abra_slope.gpkg'}],'slope',boundary,target)
     frame=gpd.read_file(target)
     assert metadata['feature_count']==1 and metadata['total_ha']>0
     assert frame.is_valid.all()

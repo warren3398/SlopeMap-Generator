@@ -11,6 +11,7 @@ import numpy as np
 import pyogrio
 import shapely
 from .memory_utils import release_memory
+from .source_overlap import GeometrySeen,subtract_previous_parts
 from boto3.s3.transfer import TransferConfig
 
 BATCH_SIZE = 128
@@ -82,38 +83,57 @@ def build_geopackage(storage, bucket, sources, layer, boundary, target):
             paths.append(path)
             infos.append(pyogrio.read_info(path))
         schema = schema_for(infos)
+        seen=GeometrySeen(Path(scratch)/'seen.sqlite')
+        split_groups={source.get('group') for source in sources if source.get('part')}
         # Derived provenance names are stable; retain original attributes too.
-        derived = {'slope_code': 'string', 'clip_ha': 'float64', 'source_fid': 'string'}
+        derived = {'slope_code': 'string', 'clip_ha': 'float64', 'source_fid': 'string', 'source_key':'string','source_part':'string','source_group':'string'}
         schema.update(derived)
         total_ha=0.0
         statistics={code:0.0 for code in palette}
-        for path, info, source in zip(paths, infos, sources):
-            try:
-                class_field = find_field(pd.DataFrame(columns=info['fields']), layer)
-            except ValueError:
-                class_field = None
-            for frame in area_batches(path, boundary):
-                source_ids = frame.index.astype(str)
-                codes = frame[class_field].map(class_code) if class_field else pd.Series(None, index=frame.index)
-                frame['slope_code']=codes
-                frame['source_fid']=source_ids
-                frame=frame[frame.slope_code.isin(palette)].copy()
-                if frame.empty:continue
-                frame['clip_ha']=frame.to_crs(6933).geometry.area/10000
-                total_ha+=float(frame.clip_ha.sum())
-                for code,value in frame.groupby('slope_code').clip_ha.sum().items():statistics[code]+=float(value)
-                for name, dtype in schema.items():
-                    if name not in frame:
-                        frame[name] = pd.NA
-                    if dtype == 'string':
-                        frame[name] = frame[name].astype('string')
-                    else:
-                        frame[name] = pd.to_numeric(frame[name]).astype(dtype)
-                frame = frame[[*schema, frame.geometry.name]].to_crs(4326)
-                frame.to_file(target, driver='GPKG', layer='map', index=False, mode='a' if written else 'w', promote_to_multi=True)
-                written += len(frame)
-                del frame
-                release_memory(full=False)
+        try:
+            for path, info, source in zip(paths, infos, sources):
+                try:
+                    class_field = find_field(pd.DataFrame(columns=info['fields']), layer)
+                except ValueError:
+                    class_field = None
+                for frame in area_batches(path, boundary):
+                    source_ids = frame.index.astype(str)
+                    codes = frame[class_field].map(class_code) if class_field else pd.Series(None, index=frame.index)
+                    frame['slope_code']=codes
+                    frame['source_fid']=source_ids
+                    frame=frame[frame.slope_code.isin(palette)].copy()
+                    if frame.empty:continue
+                    frame=frame.to_crs(4326)
+                    keep=[]
+                    for index,row in frame.iterrows():
+                        geometry=row.geometry
+                        if seen.contains(geometry,row.slope_code):continue
+                        if source.get('group') in split_groups:
+                            geometry=subtract_previous_parts(geometry,target,source.get('group',''),source['Key'])
+                        if geometry.is_empty or seen.duplicate(geometry,row.slope_code):continue
+                        frame.at[index,frame.geometry.name]=geometry
+                        keep.append(index)
+                    frame=frame.loc[keep].copy()
+                    if frame.empty:continue
+                    frame['source_key']=source['Key']
+                    frame['source_part']=source.get('part','')
+                    frame['source_group']=source.get('group','')
+                    frame['clip_ha']=frame.to_crs(6933).geometry.area/10000
+                    total_ha+=float(frame.clip_ha.sum())
+                    for code,value in frame.groupby('slope_code').clip_ha.sum().items():statistics[code]+=float(value)
+                    for name, dtype in schema.items():
+                        if name not in frame:
+                            frame[name] = pd.NA
+                        if dtype == 'string':
+                            frame[name] = frame[name].astype('string')
+                        else:
+                            frame[name] = pd.to_numeric(frame[name]).astype(dtype)
+                    frame = frame[[*schema, frame.geometry.name]].to_crs(4326)
+                    frame.to_file(target, driver='GPKG', layer='map', index=False, mode='a' if written else 'w', promote_to_multi=True)
+                    written += len(frame)
+                    del frame
+                    release_memory(full=False)
+        finally:seen.close()
     if not written:
         raise ValueError('No classified slope data is available in the selected area.')
     return {'feature_count':written,'total_ha':total_ha,'statistics':statistics}

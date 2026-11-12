@@ -157,7 +157,7 @@ def render_region(storage, bucket, sources, layer, title, target, cache, boundar
                   src_transform=from_bounds(*source_bounds, pixels.shape[1], pixels.shape[0]), src_crs=3857,
                   dst_transform=transform, dst_crs=3857,
                   src_nodata=0, dst_nodata=0, resampling=Resampling.nearest)
-        visible = projected != 0
+        visible = (projected != 0) & (canvas == 0)
         canvas[visible] = projected[visible]
     if not canvas.any():
         raise ValueError('No classified slope data is available in the selected area.')

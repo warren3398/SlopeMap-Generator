@@ -184,12 +184,13 @@ def boundary_catalog(level:str,parent_code:str|None=None):
 
 
 class LocalSource:
-    def __init__(self,path):self.path=path
+    def __init__(self,sources):self.sources={source['Key']:source for source in sources}
     def __getattr__(self,key):return getattr(r2gis.client(),key)
     def download_file(self,bucket,key,target,**kwargs):
-        # Read-only hard links reuse the cached master without another network copy.
-        try:os.link(self.path,target)
-        except OSError:shutil.copyfile(self.path,target)
+        from .slope_sources import local_source
+        path=local_source(self.sources[key])
+        try:os.link(path,target)
+        except OSError:shutil.copyfile(path,target)
 
 
 def restore(key,path):
@@ -222,33 +223,23 @@ def prepare_file(params):
     boundary,title=selection_boundary(level,fid)
     boundary_ha=float(boundary.to_crs(6933).geometry.area.sum()/10000)
     if boundary_ha<=0:raise ValueError('Selected boundary is empty.')
-    source_path,source=object_file('slope')
-    # Shared preflight for every level and export format: distinguish absent
-    # nationwide source coverage from a rendering or packaging failure.
-    source_info=pyogrio.read_info(source_path)
-    if not source_info['crs']:
-        raise ValueError('The slope source GeoPackage has no coordinate reference system.')
-    selected_bounds=boundary.to_crs(source_info['crs']).total_bounds
-    source_bounds=source_info['total_bounds']
-    if (selected_bounds[2]<source_bounds[0] or selected_bounds[0]>source_bounds[2]
-        or selected_bounds[3]<source_bounds[1] or selected_bounds[1]>source_bounds[3]):
-        raise ValueError('No slope coverage in the uploaded GeoPackage for this selected area. The current 116 MB master source is not nationwide; uploading the missing slope polygons is required.')
-
+    from .slope_sources import select_sources
+    sources=select_sources(level,fid)
     fingerprint=hashlib.sha256(b''.join(boundary.to_crs(4326).geometry.to_wkb())).hexdigest()
-    identity=json.dumps(['direct-v2',level,fid,source,fingerprint],sort_keys=True)
+    identity=json.dumps(['provincial-v3',level,fid,sources,fingerprint],sort_keys=True)
     digest=hashlib.sha256(identity.encode()).hexdigest()
     folder=ROOT/'exports'/digest;folder.mkdir(parents=True,exist_ok=True)
     ext={'jpeg':'jpg','zip':'zip','gpkg':'gpkg'}[fmt]
     filename=slug(title)+'_slope.'+ext
     target=folder/(f'slope-{LAYOUT_VERSION}.jpg' if fmt=='jpeg' else 'slope.'+ext)
-    prefix='exports/direct-v2/'+digest+'/'
+    prefix='exports/provincial-v3/'+digest+'/'
     if target.exists() or restore(prefix+target.name,target):
         if not (folder/'coverage.json').exists():restore(prefix+'coverage.json',folder/'coverage.json')
         return target,filename
-    storage=LocalSource(source_path)
+    storage=LocalSource(sources)
     if fmt=='jpeg':
         staging=folder/'layout.part.jpg'
-        try:metadata=render_region(storage,r2gis.BUCKET,[source],'slope',title,staging,ROOT/'rasters',boundary=boundary)
+        try:metadata=render_region(storage,r2gis.BUCKET,sources,'slope',title,staging,ROOT/'rasters',boundary=boundary)
         except Exception:staging.unlink(missing_ok=True);raise
         staging.replace(target)
         metadata.update(coverage_pct=metadata['total_ha']/boundary_ha*100,boundary_ha=boundary_ha,name=title)
@@ -259,7 +250,7 @@ def prepare_file(params):
         if not gpkg.exists() and not restore(prefix+'slope.gpkg',gpkg):
             staging=folder/'slope.part.gpkg'
             try:
-                metadata=build_geopackage(storage,r2gis.BUCKET,[source],'slope',boundary,staging)
+                metadata=build_geopackage(storage,r2gis.BUCKET,sources,'slope',boundary,staging)
                 coverage=metadata['total_ha']/boundary_ha*100
                 if coverage<50:raise ValueError(f'Existing slope source covers only {coverage:.1f}% of the selected area. Complete slope source data is needed for this export.')
                 metadata.update(boundary_ha=boundary_ha,coverage_pct=coverage,name=title)
@@ -303,18 +294,11 @@ def slope_coverage(level:str,fid:str):
     if level not in ('region','province','municipality','barangay') or not fid.isdigit() or len(fid)>10:
         raise HTTPException(400,'Invalid location selection.')
     try:
-        boundary,_=selection_boundary(level,fid)
-        source_path,_=object_file('slope')
-        info=pyogrio.read_info(source_path)
-        selected=boundary.to_crs(info['crs']).total_bounds
-        bounds=info['total_bounds']
-        overlaps=not (selected[2]<bounds[0] or selected[0]>bounds[2] or selected[3]<bounds[1] or selected[1]>bounds[3])
-        if not overlaps:
-            return {'status':'outside','message':'Outside available slope source coverage. This location cannot be generated from the current GeoPackage.'}
-        # Extent overlap is not proof of polygon coverage.
-        return {'status':'possible','message':'Within the source extent. Actual slope coverage is checked during generation.'}
+        from .slope_sources import select_sources
+        sources=select_sources(level,fid)
+        return {'status':'possible','message':'Uploaded provincial slope data is available. Actual polygon coverage is checked during preparation.','source_count':len(sources)}
     except ValueError as exc:
-        raise HTTPException(400,str(exc))
+        return {'status':'outside','message':str(exc)}
     except Exception:
         logging.exception('Slope coverage preflight failed')
         raise HTTPException(503,'Slope coverage check is temporarily unavailable.')
@@ -354,3 +338,10 @@ def download_file(job_id:str):
     if not path.exists():raise HTTPException(404,'Prepared download has expired. Please retry.')
     media={'jpeg':'image/jpeg','zip':'application/zip','gpkg':'application/geopackage+sqlite3'}[job['params']['format']]
     return FileResponse(path,filename=job['name'],media_type=media)
+
+
+@router.get('/api/slope-sources')
+def uploaded_sources():
+    from .slope_sources import catalog
+    groups=catalog()
+    return {'mode':'provincial','province_groups':len(groups),'file_count':sum(map(len,groups.values())),'sources':groups}
