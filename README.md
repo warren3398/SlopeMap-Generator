@@ -34,8 +34,6 @@ Accepted: GeoJSON (`.geojson`/`.json`), single-layer GeoPackage (`.gpkg`), or on
 Uploads and their derived exports remain in temporary local storage under unpredictable boundary IDs, expire after 24 hours, and are lost on service restart. Custom rasters and exports are excluded from shared R2 caches. Cleanup runs on new uploads. No uploaded attributes are retained.
 
 
-### Generation and transfer progress
+### Generation progress and automatic download
 
-Background jobs expose monotonic **stage-based estimated preparation percentages** and readable stage names through `/api/download-status`. The UI labels this estimate explicitly; it advances on processing events rather than a timer. Ready means the file is prepared, not that its transfer has completed.
-
-JPEG transfer progress counts bytes received by the browser when `Content-Length` is available and not compressed. GIS files retain native streaming downloads, with server-sent byte counts exposed through an opaque `transfer_id` and `/api/transfer-progress/{id}`. File-transfer percentages use actual byte counts when total size is known; unknown totals show an indeterminate bar and byte count. A disconnected/incomplete transfer is reported as failed. Files are not buffered in server memory to calculate progress.
+Background jobs expose monotonic **stage-based estimated preparation percentages** and readable stage names through `/api/download-status`. The UI labels this estimate explicitly; it advances on processing events rather than a timer. Once preparation finishes, the browser starts the download automatically. Only the file preparation bar is displayed; there is no file transfer bar or transfer polling in the UI.
