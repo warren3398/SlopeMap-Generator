@@ -1,4 +1,5 @@
 """Bounded-memory vector exports; geometry is never simplified for GIS downloads."""
+from .job_progress import report
 from pathlib import Path
 import tempfile
 import re
@@ -91,7 +92,8 @@ def build_geopackage(storage, bucket, sources, layer, boundary, target):
         total_ha=0.0
         statistics={code:0.0 for code in palette}
         try:
-            for path, info, source in zip(paths, infos, sources):
+            for source_index,(path,info,source) in enumerate(zip(paths,infos,sources)):
+                report(25+50*source_index/len(sources),f'Clipping source {source_index+1} of {len(sources)}')
                 try:
                     class_field = find_field(pd.DataFrame(columns=info['fields']), layer)
                 except ValueError:

@@ -45,3 +45,34 @@ def test_invalid_upload_and_missing_handle_do_not_start_job(setup):
     assert response.status_code==400
     response=client.post('/api/prepare-download',json={'boundary_id':'a'*32,'format':'jpeg'})
     assert response.status_code==400 and 'Upload' in response.json()['detail']
+
+
+def test_stage_and_transfer_progress_follow_real_job_and_file(setup):
+    client,_,_,_=setup
+    state=ready(client,{'level':'province','fid':'1','format':'gpkg'})
+    assert state['status']=='ready' and state['progress']==100
+    assert state['progress_kind']=='stage-estimate'
+    response=client.get(state['download_url']+'?transfer_id='+'b'*32)
+    transfer=client.get('/api/transfer-progress/'+'b'*32).json()
+    assert transfer['status']=='complete' and transfer['percent']==100
+    assert transfer['bytes_sent']==transfer['total_bytes']==len(response.content)
+
+
+def test_asgi_transfer_exposes_partial_bytes_and_disconnect():
+    import asyncio
+    from app.main import TransferProgressMiddleware
+    from app import transfer_progress
+    token='c'*32
+    async def stream(scope,receive,send):
+        await send({'type':'http.response.start','status':200,'headers':[(b'content-length',b'6')]})
+        await send({'type':'http.response.body','body':b'abc','more_body':True})
+        assert transfer_progress.state(token)['percent']==50
+        await send({'type':'http.response.body','body':b'def','more_body':False})
+    async def send(message):pass
+    scope={'type':'http','path':'/api/download-file/test','query_string':('transfer_id='+token).encode()}
+    asyncio.run(TransferProgressMiddleware(stream)(scope,None,send))
+    assert transfer_progress.state(token)['percent']==100
+    async def disconnect(message):
+        if message['type']=='http.response.body':raise OSError('client disconnected')
+    with pytest.raises(OSError):asyncio.run(TransferProgressMiddleware(stream)(scope,None,disconnect))
+    assert transfer_progress.state(token)['status']=='failed'

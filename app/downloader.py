@@ -16,11 +16,12 @@ import geopandas as gpd
 import pyogrio
 import shapely
 from boto3.s3.transfer import TransferConfig
-from fastapi import APIRouter,Body,HTTPException,UploadFile,File
+from fastapi import APIRouter,Body,HTTPException,UploadFile,File,Form
 from fastapi.responses import FileResponse
 
 from . import r2gis
 from .memory_utils import release_memory
+from .job_progress import REPORTER,report
 
 router=APIRouter()
 ROOT=Path('/tmp/slope-direct-downloads')
@@ -246,6 +247,7 @@ def prepare_file(params):
     from .raster_exports import render_region
     from .vector_exports import build_geopackage,shapefile_from_geopackage
     level,fid,fmt=params['level'],params['fid'],params['format']
+    report(5,'Validating selection and aligning boundary coordinates')
     print('SLOPE_PREPARE boundary',level,fid,fmt,flush=True)
     custom=params.get('boundary_id','')
     if custom:
@@ -257,6 +259,7 @@ def prepare_file(params):
     print('SLOPE_PREPARE boundary_ready',level,fid,flush=True)
     boundary_ha=float(boundary.to_crs(6933).geometry.area.sum()/10000)
     if boundary_ha<=0:raise ValueError('Selected boundary is empty.')
+    report(15,'Matching provincial source datasets')
     from .slope_sources import select_sources
     if custom:
         from .slope_sources import select_boundary_sources
@@ -288,6 +291,7 @@ def prepare_file(params):
         if not (folder/'coverage.json').exists():cached(prefix+'coverage.json',folder/'coverage.json')
         return target,filename
     release_memory()
+    report(25,'Preparing selected-area export')
     print('SLOPE_PREPARE export_start',fmt,flush=True)
     storage=LocalSource(sources)
     if custom:
@@ -302,6 +306,7 @@ def prepare_file(params):
         staging=folder/'layout.part.jpg'
         try:metadata=render_region(storage,r2gis.BUCKET,sources,'slope',('Custom boundary: '+title) if custom else location_title(level,fid),staging,folder/'rasters' if custom else ROOT/'rasters',boundary=boundary,boundary_ha=boundary_ha,hillshade_sources=hillshade_sources)
         except Exception:staging.unlink(missing_ok=True);raise
+        report(95,'Saving map layout')
         staging.replace(target)
         metadata.update(coverage_pct=metadata['total_ha']/boundary_ha*100,boundary_ha=boundary_ha,name=title)
         (folder/'coverage.json').write_text(json.dumps(metadata,indent=2))
@@ -322,6 +327,7 @@ def prepare_file(params):
             except Exception:staging.unlink(missing_ok=True);raise
         if not (folder/'coverage.json').exists():cached(prefix+'coverage.json',folder/'coverage.json')
         if fmt=='zip':
+            report(85,'Packaging Shapefile ZIP')
             staging=folder/'slope.part.zip'
             shapefile_from_geopackage(gpkg,staging,folder)
             staging.replace(target)
@@ -336,16 +342,20 @@ EXECUTOR=ThreadPoolExecutor(max_workers=1,thread_name_prefix='slope-download')
 
 def run_job(job_id,params):
     with JOB_LOCK:JOBS[job_id]['status']='processing'
+    def changed(percent,stage):
+        with JOB_LOCK:JOBS[job_id].update(progress=max(JOBS[job_id].get('progress',0),percent),stage=stage)
+    context=REPORTER.set(changed)
     try:
         release_memory()
         path,name=prepare_file(params)
-        result={'status':'ready','path':str(path),'name':name}
+        result={'status':'ready','path':str(path),'name':name,'progress':100,'stage':'File ready'}
         try:result['coverage_pct']=json.loads((path.parent/'coverage.json').read_text()).get('coverage_pct')
         except (OSError,ValueError):pass
     except ValueError as exc:result={'status':'failed','error':str(exc)}
     except Exception:
         logging.exception('Slope download preparation failed')
         result={'status':'failed','error':'Could not prepare this download. Please retry.'}
+    REPORTER.reset(context)
     release_memory()
     with JOB_LOCK:JOBS[job_id].update(result,updated=time.monotonic())
 
@@ -372,9 +382,9 @@ def hillshade_sources_info():
 
 
 @router.post('/api/upload-boundary')
-def upload_boundary(boundary:UploadFile=File(...)):
+def upload_boundary(boundary:UploadFile=File(...),source_crs:str=Form('')):
     from .boundary_upload import save,MAX_BYTES
-    try:return save(boundary.file.read(MAX_BYTES+1),boundary.filename or '')
+    try:return save(boundary.file.read(MAX_BYTES+1),boundary.filename or '',source_crs or None)
     except ValueError as exc:raise HTTPException(400,str(exc))
     except Exception:
         logging.exception('Boundary upload failed')
@@ -404,7 +414,7 @@ def start_download(data:dict=Body(...)):
         if active:return {'job_id':active,'status':JOBS[active]['status']}
         if sum(job['status'] in ('queued','processing') for job in JOBS.values())>=4:raise HTTPException(429,'Downloads are busy. Please retry shortly.')
         job_id=uuid.uuid4().hex
-        JOBS[job_id]={'status':'queued','params':params,'updated':now}
+        JOBS[job_id]={'status':'queued','params':params,'updated':now,'progress':0,'stage':'Queued'}
     EXECUTOR.submit(run_job,job_id,params)
     return {'job_id':job_id,'status':'processing'}
 
@@ -413,7 +423,7 @@ def start_download(data:dict=Body(...)):
 def download_status(job_id:str):
     with JOB_LOCK:job=JOBS.get(job_id,{}).copy()
     if not job:raise HTTPException(404,'Download preparation was interrupted by a server restart. Please retry.')
-    return {'status':job['status'],'error':job.get('error'),'coverage_pct':job.get('coverage_pct'),'download_url':'/api/download-file/'+job_id if job['status']=='ready' else None}
+    return {'status':job['status'],'error':job.get('error'),'progress':job.get('progress',0),'stage':job.get('stage','Queued'),'progress_kind':'stage-estimate','coverage_pct':job.get('coverage_pct'),'download_url':'/api/download-file/'+job_id if job['status']=='ready' else None}
 
 
 @router.get('/api/download-file/{job_id}')
@@ -435,3 +445,10 @@ def uploaded_sources():
     from .slope_sources import catalog
     groups=catalog()
     return {'mode':'provincial','province_groups':len(groups),'file_count':sum(map(len,groups.values())),'sources':groups}
+
+
+@router.get('/api/transfer-progress/{token}')
+def transfer_state(token:str):
+    from . import transfer_progress as transfers
+    if not transfers.valid(token):raise HTTPException(400,'Invalid transfer ID.')
+    return transfers.state(token)

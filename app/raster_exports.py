@@ -1,4 +1,5 @@
 """Render regional JPEGs from small province rasters, without a merged GIS export."""
+from .job_progress import report
 import hashlib
 import json
 import io
@@ -189,7 +190,8 @@ def render_region(storage, bucket, sources, layer, title, target, cache, boundar
     from .jpeg_layout import compose
 
     rasters = []
-    for source in sources:
+    for index,source in enumerate(sources):
+        report(25+50*index/len(sources),f'Rendering source {index+1} of {len(sources)}')
         try:rasters.append(province_raster(storage,bucket,source,layer,cache,boundary=boundary))
         except NoSourceIntersection:continue
     if not rasters:raise ValueError('No classified slope data is available in the selected area.')
@@ -208,4 +210,5 @@ def render_region(storage, bucket, sources, layer, title, target, cache, boundar
         raise ValueError('No classified slope data is available in the selected area.')
     del rasters,projected,visible,pixels
     release_memory()
+    report(80,'Drawing map layout and background')
     return compose(canvas,bounds,layer,title,target,hillshade_sources=hillshade_sources,boundary_ha=boundary_ha if boundary_ha is not None else float(boundary.to_crs(6933).geometry.area.sum()/10000) if boundary is not None else None)

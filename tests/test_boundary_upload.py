@@ -57,4 +57,39 @@ def test_missing_shapefile_crs(boundary,tmp_path):
     buf=io.BytesIO()
     with zipfile.ZipFile(buf,'w') as z:
         for p in tmp_path.glob('missing.*'):z.write(p,p.name)
-    with pytest.raises(ValueError,match='prj'):upload.save(buf.getvalue(),'missing.zip')
+    meta=upload.save(buf.getvalue(),'missing.zip')
+    assert meta['normalization']['assumed_crs']
+    result,_=upload.load(meta['boundary_id'])
+    assert result.geometry.iloc[0].symmetric_difference(boundary.geometry.iloc[0]).area<1e-10
+
+
+def test_swapped_coordinates_are_corrected_automatically(boundary):
+    wrong=boundary.copy()
+    wrong.geometry=shapely.transform(wrong.geometry.array,lambda xy:xy[:,[1,0]])
+    meta=upload.save(wrong.to_json().encode(),'swapped.geojson')
+    result,_=upload.load(meta['boundary_id'])
+    assert meta['normalization']['axis_swapped']
+    assert result.geometry.iloc[0].symmetric_difference(boundary.geometry.iloc[0]).area<1e-10
+
+
+def test_unlabelled_projected_boundary_requires_original_crs(boundary,tmp_path):
+    frame=boundary.to_crs(3857).set_crs(None,allow_override=True)
+    frame.to_file(tmp_path/'projected.shp',driver='ESRI Shapefile')
+    stream=io.BytesIO()
+    with zipfile.ZipFile(stream,'w') as z:
+        for p in tmp_path.glob('projected.*'):z.write(p,p.name)
+    raw=stream.getvalue()
+    with pytest.raises(ValueError,match='cannot be guessed'):upload.save(raw,'projected.zip')
+    meta=upload.save(raw,'projected.zip','EPSG:3857')
+    result,_=upload.load(meta['boundary_id'])
+    assert meta['normalization']['crs_override'] and meta['normalization']['reprojected']
+    assert result.geometry.iloc[0].symmetric_difference(boundary.geometry.iloc[0]).area<1e-10
+
+
+def test_reprojected_boundary_reports_alignment_metadata(boundary,tmp_path):
+    path=tmp_path/'utm.gpkg'
+    boundary.to_crs('ESRI:102457').to_file(path,driver='GPKG')
+    meta=upload.save(path.read_bytes(),'utm.gpkg')
+    assert meta['normalization']['reprojected']
+    assert meta['normalization']['source_crs']=='ESRI:102457'
+    assert meta['normalization']['target_crs']=='EPSG:4326'
