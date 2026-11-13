@@ -16,7 +16,7 @@ import geopandas as gpd
 import pyogrio
 import shapely
 from boto3.s3.transfer import TransferConfig
-from fastapi import APIRouter,Body,HTTPException
+from fastapi import APIRouter,Body,HTTPException,UploadFile,File
 from fastapi.responses import FileResponse
 
 from . import r2gis
@@ -247,13 +247,21 @@ def prepare_file(params):
     from .vector_exports import build_geopackage,shapefile_from_geopackage
     level,fid,fmt=params['level'],params['fid'],params['format']
     print('SLOPE_PREPARE boundary',level,fid,fmt,flush=True)
-    boundary,title=selection_boundary(level,fid,display=(fmt=='jpeg'))
+    custom=params.get('boundary_id','')
+    if custom:
+        from .boundary_upload import load
+        boundary,meta=load(custom)
+        title=meta['name']
+    else:boundary,title=selection_boundary(level,fid,display=(fmt=='jpeg'))
     release_memory()
     print('SLOPE_PREPARE boundary_ready',level,fid,flush=True)
     boundary_ha=float(boundary.to_crs(6933).geometry.area.sum()/10000)
     if boundary_ha<=0:raise ValueError('Selected boundary is empty.')
     from .slope_sources import select_sources
-    sources=select_sources(level,fid)
+    if custom:
+        from .slope_sources import select_boundary_sources
+        sources=select_boundary_sources(boundary)
+    else:sources=select_sources(level,fid)
     print('SLOPE_PREPARE sources_ready',len(sources),flush=True)
     fingerprint=hashlib.sha256(b''.join(boundary.to_crs(4326).geometry.to_wkb())).hexdigest()
     identity_data=['provincial-v3',level,fid,sources,fingerprint]
@@ -264,17 +272,27 @@ def prepare_file(params):
         identity_data.append(hillshade_sources)
     identity=json.dumps(identity_data,sort_keys=True)
     digest=hashlib.sha256(identity.encode()).hexdigest()
-    folder=ROOT/'exports'/digest;folder.mkdir(parents=True,exist_ok=True)
+    if custom:
+        from .boundary_upload import ROOT as UPLOAD_ROOT
+        folder=UPLOAD_ROOT/custom/'exports'/digest
+    else:folder=ROOT/'exports'/digest
+    folder.mkdir(parents=True,exist_ok=True)
     ext={'jpeg':'jpg','zip':'zip','gpkg':'gpkg'}[fmt]
     filename=slug(title)+'_slope.'+ext
     target=folder/(f'slope-{LAYOUT_VERSION}.jpg' if fmt=='jpeg' else 'slope.'+ext)
     prefix='exports/provincial-v3/'+digest+'/'
-    if target.exists() or restore(prefix+target.name,target):
-        if not (folder/'coverage.json').exists():restore(prefix+'coverage.json',folder/'coverage.json')
+    def cached(key,path):return False if custom else restore(key,path)
+    def publish(path,key):
+        if not custom:persist(path,key)
+    if target.exists() or cached(prefix+target.name,target):
+        if not (folder/'coverage.json').exists():cached(prefix+'coverage.json',folder/'coverage.json')
         return target,filename
     release_memory()
     print('SLOPE_PREPARE export_start',fmt,flush=True)
     storage=LocalSource(sources)
+    if custom:
+        from .boundary_upload import LocalOnlyStorage
+        storage=LocalOnlyStorage(storage)
     if fmt=='jpeg':
         # Discard the full coastline before source rendering; JPEG needs only pixel-scale detail.
         bounds=boundary.total_bounds
@@ -282,15 +300,15 @@ def prepare_file(params):
         boundary.geometry=boundary.geometry.simplify(tolerance,preserve_topology=False)
         release_memory()
         staging=folder/'layout.part.jpg'
-        try:metadata=render_region(storage,r2gis.BUCKET,sources,'slope',location_title(level,fid),staging,ROOT/'rasters',boundary=boundary,boundary_ha=boundary_ha,hillshade_sources=hillshade_sources)
+        try:metadata=render_region(storage,r2gis.BUCKET,sources,'slope',('Custom boundary: '+title) if custom else location_title(level,fid),staging,folder/'rasters' if custom else ROOT/'rasters',boundary=boundary,boundary_ha=boundary_ha,hillshade_sources=hillshade_sources)
         except Exception:staging.unlink(missing_ok=True);raise
         staging.replace(target)
         metadata.update(coverage_pct=metadata['total_ha']/boundary_ha*100,boundary_ha=boundary_ha,name=title)
         (folder/'coverage.json').write_text(json.dumps(metadata,indent=2))
-        persist(folder/'coverage.json',prefix+'coverage.json')
+        publish(folder/'coverage.json',prefix+'coverage.json')
     else:
         gpkg=folder/'slope.gpkg'
-        if not gpkg.exists() and not restore(prefix+'slope.gpkg',gpkg):
+        if not gpkg.exists() and not cached(prefix+'slope.gpkg',gpkg):
             staging=folder/'slope.part.gpkg'
             try:
                 metadata=build_geopackage(storage,r2gis.BUCKET,sources,'slope',boundary,staging)
@@ -299,15 +317,15 @@ def prepare_file(params):
                 metadata.update(boundary_ha=boundary_ha,coverage_pct=coverage,name=title)
                 (folder/'coverage.json').write_text(json.dumps(metadata,indent=2))
                 staging.replace(gpkg)
-                persist(folder/'coverage.json',prefix+'coverage.json')
-                persist(gpkg,prefix+'slope.gpkg')
+                publish(folder/'coverage.json',prefix+'coverage.json')
+                publish(gpkg,prefix+'slope.gpkg')
             except Exception:staging.unlink(missing_ok=True);raise
-        if not (folder/'coverage.json').exists():restore(prefix+'coverage.json',folder/'coverage.json')
+        if not (folder/'coverage.json').exists():cached(prefix+'coverage.json',folder/'coverage.json')
         if fmt=='zip':
             staging=folder/'slope.part.zip'
             shapefile_from_geopackage(gpkg,staging,folder)
             staging.replace(target)
-    if fmt!='gpkg':persist(target,prefix+target.name)
+    if fmt!='gpkg':publish(target,prefix+target.name)
     return target,filename
 
 
@@ -353,13 +371,31 @@ def hillshade_sources_info():
     return {'provider':'uploaded-provincial-geotiffs','file_count':len(sources),'sources':sources}
 
 
+@router.post('/api/upload-boundary')
+def upload_boundary(boundary:UploadFile=File(...)):
+    from .boundary_upload import save,MAX_BYTES
+    try:return save(boundary.file.read(MAX_BYTES+1),boundary.filename or '')
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    except Exception:
+        logging.exception('Boundary upload failed')
+        raise HTTPException(400,'Could not read this boundary file. Check its format and CRS.')
+    finally:boundary.file.close()
+
+
 @router.post('/api/prepare-download')
 def start_download(data:dict=Body(...)):
     level=str(data.get('level',''));fid=str(data.get('fid',''));fmt=str(data.get('format',''))
-    if level not in ('region','province','municipality','barangay') or not fid.isdigit() or len(fid)>10 or fmt not in ('jpeg','zip','gpkg'):
+    custom=str(data.get('boundary_id',''))
+    if custom:
+        from .boundary_upload import load
+        try:load(custom)
+        except ValueError as exc:raise HTTPException(400,str(exc))
+        level,fid='custom',custom
+    if (not custom and (level not in ('region','province','municipality','barangay') or not fid.isdigit() or len(fid)>10)) or fmt not in ('jpeg','zip','gpkg'):
         raise HTTPException(400,'Invalid download selection.')
     if level=='region':fid=fid.zfill(9)
     params={'level':level,'fid':fid,'format':fmt}
+    if custom:params['boundary_id']=custom
     now=time.monotonic()
     with JOB_LOCK:
         expired=[key for key,value in JOBS.items() if value['status'] in ('ready','failed') and now-value['updated']>3600]

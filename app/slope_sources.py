@@ -98,3 +98,13 @@ def local_source(source):
                     staging.replace(path)
                 finally:staging.unlink(missing_ok=True)
     return path
+
+
+def select_boundary_sources(boundary):
+    from . import downloader as service
+    from .boundary_upload import provinces
+    path,_=service.object_file('province')
+    found={}
+    for fid,_ in provinces(path,boundary):
+        for source in select_sources('province',str(fid)):found[source['Key']]=source
+    return [found[key] for key in sorted(found)]

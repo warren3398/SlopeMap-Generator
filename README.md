@@ -23,3 +23,12 @@ The JPEG layout omits the large top classification heading, enlarges the map fra
 SlopeMap JPEGs include a light-blue ocean and shoreline strokes. A bundled OCHA/NAMRIA land layer (via geoBoundaries) supplies Philippine shorelines; Natural Earth supplies surrounding land context. Ocean is determined from land geometry, independently of hillshade NoData. Inland holes are filled, so missing hillshade and inland lakes are not shown as ocean. Only original coastal exteriors are drawn, avoiding administrative boundaries and artificial viewport-edge lines. Ocean and Shoreline symbols are included in the legend. Data provenance and attribution are in `app/data/SOURCES.md`.
 
 4K JPEG exports are drawn natively at 3840 × 2406 pixels, maintaining the page aspect ratio. Fonts and strokes render at the target size, classification rasters use a 2560-pixel long edge, and basemaps are requested at the native map viewport size. JPEGs use quality 95, 4:4:4 chroma (no subsampling), and 300 DPI metadata. The source GIS geometry and original terrain/imagery resolution remain the basis of the map.
+
+
+### Custom boundary uploads
+
+Open **Advanced Options → Upload your own boundary** to clip JPEG, Shapefile ZIP, or GeoPackage downloads to a custom polygon. A valid upload replaces the administrative selection; remove it to return to the area selectors. The NPAAAD/SAFDZ layer selection still applies. Provincial source datasets are selected spatially, including boundaries crossing province borders and multipart Palawan slope sources.
+
+Accepted: GeoJSON (`.geojson`/`.json`), single-layer GeoPackage (`.gpkg`), or one Shapefile ZIP containing `.shp`, `.shx`, `.dbf`, and `.prj` (optional `.cpg`). Upload limit: 20 MB, 5,000 features, 300,000 coordinates; expanded ZIP limit: 80 MB. Only polygons and multipolygons are accepted. CRS is required (standard GeoJSON defaults to WGS 84); projected data is reprojected automatically. Invalid polygons are repaired when possible; holes and multipart boundaries are retained. Unsupported coverage produces an explicit error.
+
+Uploads and their derived exports remain in temporary local storage under unpredictable boundary IDs, expire after 24 hours, and are lost on service restart. Custom rasters and exports are excluded from shared R2 caches. Cleanup runs on new uploads. No uploaded attributes are retained.
