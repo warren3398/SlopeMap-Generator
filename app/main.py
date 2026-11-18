@@ -1,6 +1,6 @@
 from pathlib import Path
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse,JSONResponse
+from fastapi.responses import FileResponse,HTMLResponse,JSONResponse
 from .r2gis import router
 app=FastAPI(title="SlopeMap Generator",version="0.2.0")
 app.include_router(router)
@@ -9,6 +9,10 @@ app.include_router(download_router)
 @app.get("/",response_class=HTMLResponse)
 def home():
     return Path("static/index.html").read_text(encoding="utf-8")
+@app.get("/static/assets/terrain-preview.webp", include_in_schema=False)
+def terrain_preview():
+    return FileResponse(Path(__file__).resolve().parents[1] / "static/assets/terrain-preview.webp", media_type="image/webp")
+
 @app.get("/health")
 def health():
     from .r2gis import configured

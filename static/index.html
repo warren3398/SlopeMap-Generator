@@ -63,12 +63,94 @@ body::before{content:"";position:absolute;inset:110px 0 0;pointer-events:none;z-
 .download-copy { min-width: 0; overflow-wrap: anywhere; }
 .download-copy small, .advanced-body .crs-note { font-size: 14px; }
 
+/* Map tool workspace */
+body { background: #eaf3ee; color: #132c24; }
+body::before { content: none; }
+.tool-hero {
+  --banner: #0a332d;
+  --accent: #c4ec9e;
+  min-height: 276px; display: grid; align-items: center;
+  grid-template-columns: minmax(0, 7fr) minmax(220px, 3fr); gap: clamp(16px, 4vw, 60px);
+  padding: 26px max(24px, calc((100vw - 1260px) / 2));
+  background: radial-gradient(ellipse at right, #266b48, transparent 65%), var(--banner);
+}
+[data-theme="zoning-workspace"] .tool-hero {
+  --banner: #0a3034;
+  --accent: #c4ead7;
+  background: radial-gradient(ellipse at right, #216251, transparent 65%), var(--banner);
+}
+.tool-hero .hero-inner { border: 0; padding: 0; max-width: none; }
+.tool-hero h1 { margin: 12px 0 9px; line-height: 1.03; letter-spacing: -.035em; max-width: 820px; }
+.tool-hero p { color: #e8f5ee; max-width: 580px; margin: 0; line-height: 1.5; }
+.portal-link { display: inline-block; color: var(--accent); text-decoration: none; font-size: 15px; font-weight: 730; }
+.portal-link:hover { text-decoration: underline; }
+.portal-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.hero-figure { margin: 0; position: relative; isolation: isolate; min-width: 0; overflow: hidden; border-radius: 16px; border: 1px solid #c9efdc75; box-shadow: 0 11px 25px #0521158c; }
+.hero-figure img { display: block; width: 100%; height: 207px; object-fit: cover; object-position: center 45%; }
+.hero-figure figcaption { position: absolute; bottom: 0; left: 0; right: 0; padding: 14px 12px 9px; color: #edf6ef; background: linear-gradient(transparent,#082d25dc); font-size: 12px; }
+.layout { width: min(100% - 48px, 1260px); padding: 0; margin: 22px auto 28px; gap: 18px; grid-template-columns: minmax(0, 2.25fr) minmax(265px, 1fr); }
+.layout .panel { padding: clamp(17px, 2.5vw, 29px); border: 1px solid #cfdfd6; border-radius: 16px; box-shadow: 0 5px 18px #103a2610; }
+.tool-workspace .section-heading { padding-bottom: 10px; margin-bottom: 9px; border-color: #deebe3; }
+.tool-workspace .section-heading::after { border-color: #6f9e3c; border-width: 3px; width: 82px; }
+.tool-workspace .section-heading .icon { width: 34px; height: 34px; color: #176748; }
+.section-intro { margin: 0 0 19px; color: #405c50; font-size: 15px; }
+.tool-workspace .fields { gap: 13px; }
+.tool-workspace .field { border: 1px solid #e1ebe5; border-radius: 10px; background: #f6faf7; padding: 10px 11px 11px 42px; }
+.tool-workspace .field > .icon { top: 12px; left: 11px; color: #19714c; width: 23px; height: 23px; }
+.tool-workspace .field select { border-color: #bbd1c4; min-width: 0; }
+.tool-workspace .field select:disabled { color: #52675c; background: #edf3ef; }
+.tool-workspace .advanced { margin-top: 16px; border-color: #c8ddd0; background: #f7fbf8; }
+.tool-workspace .advanced summary > .icon { color: #176748; }
+.output-section { margin-top: 24px; border-top: 1px solid #d8e7de; padding-top: 17px; }
+.output-section h2 { font-size: 22px; }
+.output-section .status { margin-block: 12px; }
+.output-section .download.primary { background: #086444; }
+.output-section .download.primary:disabled { background: #d7e6de; color: #3d5c4e; }
+.output-section .download:not(.primary) { background: #edf6ef; color: #134c35; border: 1px solid #bed7c9; box-shadow: none; }
+.output-section .download:not(.primary):hover:not(:disabled) { background: #deeee3; }
+.output-section .download:not(.primary):disabled { background: #f0f4f1; border-color: #dce8e0; color: #546b5f; }
+.output-section .download:not(.primary) > .icon, .output-section .download.primary:disabled > .icon { color: inherit; }
+.output-section .download:not(.primary) .download-end { border-color: #b6d0c2; }
+.output-section .note { color: #466456; }
+.layout .aside { background: #f7fbf8; }
+.layout .aside h3 { color: #123e31; font-size: 21px; }
+.layout .aside h3 .icon { width: 27px; height: 27px; color: #176748; }
+.layout .aside section + section { border-color: #d6e7dc; }
+.layout .output-item { background: #fff; border: 1px solid #e0ebe4; border-radius: 9px; padding: 9px; margin: 9px 0; gap: 9px; }
+.layout .output-item > .icon { width: 23px; height: 23px; color: #176748; }
+.tool-footer { width: min(100% - 48px, 1260px); margin: auto auto 20px; border-top: 1px solid #c9dbce; padding-top: 12px; font-size: 13px; color: #3f5d4f; }
+@media (max-width: 950px) {
+  .tool-hero { gap: 20px; grid-template-columns: minmax(0, 2fr) minmax(185px, 1fr); min-height: 0; }
+  .hero-figure img { height: 165px; }
+  .layout { grid-template-columns: minmax(0,1fr); }
+}
+@media (max-width: 600px) {
+  .tool-hero { padding: 22px 16px 18px; grid-template-columns: minmax(0,1fr); gap: 14px; }
+  .hero-figure img { height: 138px; }
+  .hero-figure { border-radius: 11px; }
+  .layout, .tool-footer { width: calc(100% - 24px); }
+  .layout { margin-top: 14px; gap: 13px; }
+  .tool-workspace .fields { grid-template-columns: minmax(0, 1fr); }
+  .tool-workspace .field select { padding-inline: 8px; }
+}
+
 </style></head>
-<body data-theme="preparation-v4">
-<header class="hero"><div class="hero-landscape" aria-hidden="true"><svg viewBox="0 0 540 230" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="sky" x2="0" y2="1"><stop stop-color="#8dcce5"/><stop offset="1" stop-color="#e5f3ed"/></linearGradient></defs><path fill="url(#sky)" d="M0 0h540v230H0z"/><path fill="#fff" opacity=".75" d="M20 38q30-30 58-5 22-12 39 7zm210-16q25-25 46-5 31-9 42 9z"/><path fill="#679995" d="m0 123 80-68 54 46 72-62 67 53 62-30 100 47 105-35v156H0z"/><path fill="#327c58" d="m0 143 64-45 60 45 69-66 70 61 86-48 97 36 94-21v125H0z"/><path fill="#88ae35" d="M0 161q100-47 228-1t312-25v95H0z"/><path fill="#b3ca50" d="M0 175q115-40 226 5l115-36 57 12-131 44-104-8-163 22z"/><path fill="#26703c" d="m0 219 164-38 101 19 135-42 140 21v51H0z"/><g fill="none" stroke="#d4db78" stroke-width="3"><path d="m11 198 147-36 99 18 109-35m-331 65 132-31 98 17 136-42m-202 35-48 41m95-37-42 37m104-52 44 52m-11-69 47 69m-3-85 65 85"/></g><g fill="#164e36"><path d="m65 134 9-27 9 27zm78 30 8-28 9 28zm253-25 8-30 10 30zm63 39 10-36 11 36z"/><path d="M0 224q110-23 231 3t309-16v19H0z"/></g></svg></div><div class="hero-inner"><h1>Slope Map Generator</h1><p>Download slope classification maps and GIS data for your selected area.</p></div><div class="hero-art" aria-hidden="true"></div></header>
+<body data-theme="terrain-workspace">
+<header class="hero tool-hero">
+  <div class="hero-inner">
+    <a class="portal-link" href="https://almed-gis-portal.onrender.com/#applications">‹ All GIS applications</a>
+    <h1>Slope Map Generator</h1>
+    <p>Select a location or upload a boundary to generate slope classification maps and GIS layers.</p>
+  </div>
+  <figure class="hero-figure">
+    <img src="/static/assets/terrain-preview.webp" width="512" height="512" alt="">
+    <figcaption>Slope classification illustration</figcaption>
+  </figure>
+</header>
 <main class="layout">
-<section class="panel" aria-labelledby="area-heading">
+<section class="panel tool-workspace" aria-labelledby="area-heading">
 <div class="section-heading"><h2 id="area-heading"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 21 7-17 6 17zm10-10 4-7 7 17h-8M6 12l3 3 3-2"/></svg>Select Area</h2></div>
+<p class="section-intro">Choose an administrative area, or use your own boundary in Advanced Options.</p>
 <div class="fields">
 <div class="field"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 10 5-10 5L2 8zm-10 9 10 5 10-5M2 16l10 5 10-5"/></svg><label for="island">Island group <span class="required" aria-hidden="true">*</span></label><select id="island" aria-required="true"><option value="">Select island group</option></select></div>
 <div class="field"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0Z"/><circle cx="12" cy="10" r="2.5"/></svg><label for="region">Region <span class="required" aria-hidden="true">*</span></label><select id="region" aria-required="true" disabled><option value="">Select island group first</option></select></div>
@@ -77,15 +159,18 @@ body::before{content:"";position:absolute;inset:110px 0 0;pointer-events:none;z-
 <div class="field full"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 10 5-10 5L2 8zm-10 9 10 5 10-5M2 16l10 5 10-5"/></svg><label for="barangay">Barangay <span class="optional">(optional)</span></label><select id="barangay" disabled><option value="">All barangays</option></select></div>
 </div>
 <details class="advanced"><summary><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 3-1 3-3 1-2 3 2 3-1 3 3 2 3-1 3 3 3-2v-3l3-2-1-4-3-1-2-3z"/><circle cx="11" cy="11" r="3"/></svg><span>Advanced Options <span class="optional">(optional)</span></span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 8 7 7 7-7"/></svg></summary><div class="advanced-body"><label class="upload-label" for="boundary-file">Upload your own boundary</label><p>Clip the map and GIS data to your polygon instead of an administrative area. Sources are matched automatically; your boundary may cross provincial borders.</p><input class="boundary-file" id="boundary-file" type="file" accept=".geojson,.json,.gpkg,.zip" aria-describedby="boundary-help boundary-upload-status"><p id="boundary-help">GeoJSON, GeoPackage, or Shapefile ZIP (.shp, .shx, .dbf; .prj recommended). Maximum 20 MB. Coordinates are aligned automatically when the CRS is identifiable.</p><div class="crs-field"><label class="upload-label" for="source-crs">Original boundary CRS</label><select id="source-crs" aria-describedby="crs-help"><option value="">Auto-detect and align (recommended)</option><option value="EPSG:4326">WGS 84 — latitude / longitude (EPSG:4326)</option><option value="ESRI:102457">PRS92 / UTM Zone 51N (ESRI:102457)</option><option value="EPSG:32651">WGS 84 / UTM Zone 51N (EPSG:32651)</option><option value="EPSG:32650">WGS 84 / UTM Zone 50N (EPSG:32650)</option><option value="EPSG:3121">PRS92 / Philippines Zone 1 (EPSG:3121)</option><option value="EPSG:3122">PRS92 / Philippines Zone 2 (EPSG:3122)</option><option value="EPSG:3123">PRS92 / Philippines Zone 3 (EPSG:3123)</option><option value="EPSG:3124">PRS92 / Philippines Zone 4 (EPSG:3124)</option><option value="EPSG:3125">PRS92 / Philippines Zone 5 (EPSG:3125)</option><option value="EPSG:3857">Web Mercator (EPSG:3857)</option></select><p id="crs-help" class="crs-note">The system reads the CRS, repairs polygons, and reprojects them to match each source dataset. Leave Auto-detect selected unless the file has a missing or incorrect CRS.</p></div><div id="boundary-upload-status" class="upload-status" role="status" aria-live="polite">No custom boundary uploaded. The area selections above will be used.</div><button type="button" id="remove-boundary" class="remove-boundary" hidden>Remove uploaded boundary</button></div></details>
+<section class="output-section" aria-labelledby="download-heading">
+<h2 id="download-heading">Download files</h2>
 <div id="status" class="status" role="status" aria-live="polite">Loading available areas…</div>
 <section id="export-progress" class="export-progress" hidden aria-label="File preparation progress"><div class="progress-heading"><span>File preparation</span><output id="prepare-percent">0%</output></div><progress id="prepare-progress" max="100" value="0" aria-label="Estimated file preparation progress"></progress><p class="progress-help">Stage-based estimate; processing speed varies by area and format.</p><p id="prepare-stage" class="progress-stage" aria-live="polite">Queued</p></section>
 <div class="actions"><div><button class="download primary" data-format="jpeg" disabled><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="18" rx="2"/><circle cx="8" cy="8" r="1.5"/><path d="m2 17 6-5 4 4 4-6 6 7"/></svg><span class="download-copy">Download Slope Map (JPEG)<small>4K map with classes, legend, scale, and area summary</small></span><svg class="icon download-end" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M3 16v5h18v-5"/></svg></button></div><div class="buttons"><button class="download" data-format="zip" disabled><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 10 5-10 5L2 8zm-10 9 10 5 10-5M2 16l10 5 10-5"/></svg><span class="download-copy">Download Shapefile ZIP<small>GIS vector data (SHP, SHX, DBF, etc.)</small></span><svg class="icon download-end" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M3 16v5h18v-5"/></svg></button><button class="download" data-format="gpkg" disabled><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 4 18 4 18 0V5M3 12c0 4 18 4 18 0"/></svg><span class="download-copy">Download GeoPackage<small>Single, portable GIS file (.gpkg)</small></span><svg class="icon download-end" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M3 16v5h18v-5"/></svg></button></div></div>
 <p class="note">4K JPEG (3840 × 2406 pixels) includes uploaded provincial hillshade across the full map frame beneath a 70% classification overlay, ocean and shoreline, a legend, scale bar, and area summary. Downloads use the available source slope data; unavailable coverage is reported explicitly.</p>
+</section>
 <iframe id="download-frame" name="download-frame" title="Download response" hidden></iframe>
 </section>
 <aside class="panel aside" aria-label="Map download guide"><section><h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 11v6m0-11v1"/></svg>About</h3><p>Generate slope maps and GIS data by island group, region, province, municipality/city, or barangay. You can also upload a custom boundary.</p></section><section><h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M3 16v5h18v-5"/></svg>Outputs</h3><div class="output-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="18" rx="2"/><circle cx="8" cy="8" r="1.5"/><path d="m2 17 6-5 4 4 4-6 6 7"/></svg><p><strong>JPEG</strong> – Printable 4K map (3840 × 2406 px) with legend, scale bar, and area summary.</p></div><div class="output-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 10 5-10 5L2 8zm-10 9 10 5 10-5M2 16l10 5 10-5"/></svg><p><strong>Shapefile ZIP</strong> – GIS vector format (SHP, SHX, DBF, etc.) for spatial analysis.</p></div><div class="output-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 4 18 4 18 0V5M3 12c0 4 18 4 18 0"/></svg><p><strong>GeoPackage</strong> – Single-file GIS format compatible with most GIS software.</p></div></section><section><h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 17c0-3-4-4-4-8a8 8 0 1 1 16 0c0 4-4 5-4 8zm0 4h8m-6 3h4"/></svg>Tips</h3><ul class="tips"><li>Leave Province blank to download the selected region.</li><li>Select a province, municipality, or barangay for a smaller area.</li><li>Use Advanced Options to clip with your own boundary.</li><li>Large areas may take longer to prepare.</li></ul></section></aside>
 </main>
-<footer class="footer" aria-hidden="true"><svg viewBox="0 0 1600 110" preserveAspectRatio="none"><path d="M0 0C280 160 1050 130 1330 38Q1500-4 1600 14V110H0" fill="#e2ce20"/><path d="M0 20C300 165 1100 132 1390 48Q1510 18 1600 36V110H0" fill="#76a72c"/><path d="M0 37C350 150 1060 137 1400 62Q1500 37 1600 55V110H0" fill="#00663a"/><path d="M0 70C420 160 1030 118 1600 82V110H0" fill="#004b31"/></svg></footer>
+<footer class="tool-footer">Department of Agriculture · Bureau of Soils and Water Management</footer>
 <script>
 const $=id=>document.getElementById(id),buttons=[...document.querySelectorAll('[data-format]')];
 let regions=[],busy=false,coverageRequest=0,unavailable=false;
